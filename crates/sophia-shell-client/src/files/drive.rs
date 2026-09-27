@@ -7,7 +7,9 @@ use std::collections::VecDeque;
 
 use sophia_9p_client::pipeline::{PipelineError, Reply};
 use sophia_9p_records::Tag;
-use sophia_shell_protocol::shell_files::{ShellFileAck, encode_shell_file_ack};
+use sophia_shell_protocol::shell_files::{
+    SHELL_FILE_ACK_BYTES, ShellFileAck, encode_shell_file_ack,
+};
 
 use super::{Current, FileWire, MAX_ROUNDS, SubmissionPhase, is_disconnect};
 use crate::custody::{Custody, Ledger};
@@ -113,6 +115,9 @@ impl FileWire {
                 // (a final `Submitted` among them settles custody), each
                 // under the same checks as ever; nothing past a bad one.
                 while self.process_buffered_event(inbox)? {}
+                if self.object_fetch.is_some() {
+                    self.observe_custody_after_close();
+                }
                 return Ok(());
             }
             let mut progressed = false;
@@ -181,7 +186,7 @@ impl FileWire {
     fn on_ack_reply(&mut self, reply: &Reply) -> Result<(), ShellClientError> {
         self.ack_tag = None;
         match reply {
-            Reply::Write(_) => Ok(()),
+            Reply::Write(count) if *count as usize == SHELL_FILE_ACK_BYTES => Ok(()),
             _ => Err(ShellClientError::Protocol("unexpected ack reply")),
         }
     }
@@ -193,7 +198,9 @@ impl FileWire {
         if self.read_tag.is_some() {
             return Ok(false);
         }
-        if inbox.len() >= crate::MAX_QUEUED_FRAMES {
+        if inbox.len() >= crate::MAX_QUEUED_FRAMES
+            || self.event_buf.len() >= super::events::MAX_EVENT_BYTES
+        {
             return Ok(false);
         }
         let tag = self

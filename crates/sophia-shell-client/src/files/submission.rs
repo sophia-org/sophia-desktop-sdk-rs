@@ -16,7 +16,8 @@ use std::time::{Duration, Instant};
 use sophia_9p_client::pipeline::Reply;
 use sophia_9p_records::{Errno, Tag};
 use sophia_shell_protocol::shell_files::{
-    ShellFileClass, ShellFileSubmit, decode_shell_file_record, encode_shell_file_submit,
+    ShellFileClass, ShellFileKind, ShellFileSubmit, decode_shell_file_record,
+    encode_shell_file_submit,
 };
 
 use super::{Current, FileWire, O_RDWR, QueuedKind, RETRY_FIRST, RETRY_MAX, SubmissionPhase};
@@ -53,13 +54,13 @@ impl FileWire {
         self.custody.push((ticket, Custody::InFlight));
         match kind {
             QueuedKind::Record => {
-                let submission_id = decode_shell_file_record(&bytes, ShellFileClass::Candidate)?
-                    .header
-                    .submission_id;
+                let header = decode_shell_file_record(&bytes, ShellFileClass::Candidate)?.header;
+                let (submission_id, kind) = (header.submission_id, header.kind);
                 let (tag, fid) = self.pipeline.walk(self.root, &[b"transaction"])?;
                 self.current = Some(Current::Submission {
                     bytes,
                     submission_id,
+                    kind,
                     ticket,
                     submit: Vec::new(),
                     phase: SubmissionPhase::Walk { tag, fid },
@@ -95,9 +96,14 @@ impl FileWire {
     /// The current submission's `Submitted` event arrived. Custody is
     /// settled at once; the unit itself completes when `submit` has also
     /// answered.
-    pub(super) fn on_submitted(&mut self, submission: u64) -> Result<(), ShellClientError> {
+    pub(super) fn on_submitted(
+        &mut self,
+        submission: u64,
+        candidate_kind: ShellFileKind,
+    ) -> Result<(), ShellClientError> {
         let Some(Current::Submission {
             submission_id,
+            kind,
             ticket,
             phase,
             submitted,
@@ -110,7 +116,7 @@ impl FileWire {
             phase,
             SubmissionPhase::WriteSubmit { .. } | SubmissionPhase::AwaitSubmitted
         );
-        if *submission_id != submission || *submitted || !issued {
+        if *submission_id != submission || *kind != candidate_kind || *submitted || !issued {
             return Err(ShellClientError::Protocol("unexpected Submitted event"));
         }
         *submitted = true;
@@ -233,8 +239,12 @@ impl FileWire {
             },
             SubmissionPhase::WriteSubmit { tag: t, fid } if t == tag => {
                 let seen = *submitted;
+                let exact = submit.len();
                 match reply {
-                    Reply::Write(_) => {}
+                    Reply::Write(count) if *count as usize == exact => {}
+                    Reply::Write(_) => {
+                        return Err(ShellClientError::Protocol("short submit write"));
+                    }
                     Reply::Error(errno) if *errno == Errno::EALREADY && seen => {}
                     Reply::Error(errno) if *errno == Errno::EAGAIN => {
                         if seen {
@@ -261,6 +271,12 @@ impl FileWire {
                         // Revocation; terminal classification settles the unit.
                         self.peer_closed = true;
                         return Ok(true);
+                    }
+                    Reply::Error(_) if seen => {
+                        // Custody was already observed; a refusal now
+                        // contradicts it. Custody stays settled as
+                        // Submitted, and the connection fails closed.
+                        return Err(ShellClientError::Protocol("submit refused after Submitted"));
                     }
                     Reply::Error(errno) => {
                         // A definitive refusal: nothing was journaled.

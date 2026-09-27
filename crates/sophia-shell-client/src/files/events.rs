@@ -15,16 +15,37 @@ use std::collections::VecDeque;
 use sophia_9p_client::pipeline::Reply;
 use sophia_9p_records::{Errno, Tag};
 use sophia_shell_protocol::shell_files::*;
-use sophia_shell_protocol::{ShellCatalogActionRecord, ShellContentRecord, TransactionId};
+use sophia_shell_protocol::{
+    SOPHIA_SHELL_CAPABILITY_CONTENT_SURFACE, SOPHIA_SHELL_CAPABILITY_PERSISTENT_CATALOG,
+    SOPHIA_SHELL_CAPABILITY_VIEW_INDICATORS, ShellCatalogActionRecord, ShellContentRecord,
+    TransactionId,
+};
 
 use super::{FEEDS, FetchPhase, FileWire, MAX_FETCH_RESTARTS, O_RDONLY, ObjectFetch, feed_index};
 use crate::ShellClientError;
 use crate::wire::Inbound;
 
+/// The largest event record the journal can hold, and so the most event
+/// bytes the client ever buffers.
+pub(super) const MAX_EVENT_BYTES: usize = SHELL_FILE_MAX_JOURNAL_BYTES as usize;
+
 /// The whole record at the front of `bytes`, if one is complete.
 fn complete_record(bytes: &[u8]) -> Option<usize> {
     let size = u32::from_le_bytes(bytes.get(..4)?.try_into().ok()?) as usize;
     (size >= SHELL_FILE_HEADER_BYTES && bytes.len() >= size).then_some(size)
+}
+
+/// Refuses a record length no event can have, so a malformed length can
+/// never leave bytes accumulating behind it.
+fn check_record_length(bytes: &[u8]) -> Result<(), ShellClientError> {
+    let Some(prefix) = bytes.get(..4) else {
+        return Ok(());
+    };
+    let size = u32::from_le_bytes(prefix.try_into().unwrap()) as usize;
+    if !(SHELL_FILE_HEADER_BYTES..=MAX_EVENT_BYTES).contains(&size) {
+        return Err(ShellClientError::Protocol("event record length"));
+    }
+    Ok(())
 }
 
 impl FileWire {
@@ -46,6 +67,7 @@ impl FileWire {
         &mut self,
         inbox: &mut VecDeque<Inbound>,
     ) -> Result<bool, ShellClientError> {
+        check_record_length(&self.event_buf)?;
         if self.object_fetch.is_some() {
             return Ok(false);
         }
@@ -65,6 +87,53 @@ impl FileWire {
         self.handle_event(record, inbox)?;
         self.progress += 1;
         Ok(true)
+    }
+
+    /// The connection is over while an object fetch holds later events back:
+    /// look past it only to observe custody. Each buffered record gets the
+    /// same length, epoch and rising-sequence checks as ever, and the walk
+    /// stops at the first that fails; nothing else is delivered.
+    pub(super) fn observe_custody_after_close(&mut self) {
+        let mut submitted = Vec::new();
+        let mut rest = &self.event_buf[..];
+        let mut last = self.ack_ready;
+        while check_record_length(rest).is_ok()
+            && let Some(size) = complete_record(rest)
+        {
+            let record = &rest[..size];
+            let Ok(parsed) = decode_shell_file_record(record, ShellFileClass::Event) else {
+                break;
+            };
+            let header = parsed.header;
+            if header.connection_epoch != self.epoch || header.sequence <= last {
+                break;
+            }
+            last = header.sequence;
+            if header.kind == ShellFileKind::Submitted {
+                let Ok(value) = decode_shell_file_submitted(record) else {
+                    break;
+                };
+                submitted.push((value.submission_id, value.candidate_kind));
+            }
+            rest = &rest[size..];
+        }
+        for (submission, kind) in submitted {
+            if self.on_submitted(submission, kind).is_err() {
+                return;
+            }
+        }
+    }
+
+    /// Whether the negotiated capabilities disclose `feed` at all.
+    fn feed_disclosed(&self, feed: ShellFileKind) -> bool {
+        let needed = match feed {
+            ShellFileKind::Outputs => SOPHIA_SHELL_CAPABILITY_CONTENT_SURFACE,
+            // The file wire's catalog object is the r8 persistent catalog.
+            ShellFileKind::Catalog => SOPHIA_SHELL_CAPABILITY_PERSISTENT_CATALOG,
+            ShellFileKind::Indicators => SOPHIA_SHELL_CAPABILITY_VIEW_INDICATORS,
+            _ => return false,
+        };
+        self.capabilities & needed != 0
     }
 
     /// Whether a later same-feed announcement is already buffered.
@@ -91,17 +160,23 @@ impl FileWire {
     ) -> Result<(), ShellClientError> {
         let header = decode_shell_file_record(&record, ShellFileClass::Event)?.header;
         let sequence = header.sequence;
+        if header.connection_epoch != self.epoch {
+            return Err(ShellClientError::Protocol(
+                "event from another connection epoch",
+            ));
+        }
         if sequence <= self.ack_ready {
             return Err(ShellClientError::Protocol("event sequence did not rise"));
         }
         match header.kind {
             ShellFileKind::Submitted => {
                 let submitted = decode_shell_file_submitted(&record)?;
-                self.on_submitted(submitted.submission_id)?;
+                self.on_submitted(submitted.submission_id, submitted.candidate_kind)?;
             }
             ShellFileKind::ObjectPublished => {
                 let published = decode_shell_file_object_published(&record)?;
                 let index = feed_index(published.object)
+                    .filter(|_| self.feed_disclosed(published.object))
                     .ok_or(ShellClientError::Protocol("announced object kind"))?;
                 let bound = sequence - 1;
                 let hold = self.holds[index].get_or_insert(bound);
@@ -299,6 +374,12 @@ impl FileWire {
         let clunk = self.pipeline.clunk(fid)?;
         self.forgettable.insert(clunk);
         let fetch = self.object_fetch.take().expect("a fetch is in flight");
+        let header = decode_shell_file_record(&fetch.buf, ShellFileClass::Object)?.header;
+        if header.kind != fetch.feed || header.connection_epoch != self.epoch {
+            return Err(ShellClientError::Protocol(
+                "snapshot object from another feed or connection epoch",
+            ));
+        }
         let (generation, item) = match fetch.feed {
             ShellFileKind::Outputs => {
                 let value = decode_shell_file_outputs(&fetch.buf)?;
@@ -331,12 +412,19 @@ impl FileWire {
                 "snapshot object generation differs from its announcement",
             ));
         }
+        // At most one undelivered decoded object per feed: a newer one
+        // replaces it.
         match item {
             Inbound::Catalog(..) => inbox.retain(|queued| !matches!(queued, Inbound::Catalog(..))),
             Inbound::Indicators(..) => {
                 inbox.retain(|queued| !matches!(queued, Inbound::Indicators(..)))
             }
-            _ => {}
+            _ => inbox.retain(|queued| {
+                !matches!(
+                    queued,
+                    Inbound::Content(_, ShellContentRecord::OutputFacts(_))
+                )
+            }),
         }
         inbox.push_back(item);
         self.holds[feed_index(fetch.feed).expect("fetched feeds are known")] = None;

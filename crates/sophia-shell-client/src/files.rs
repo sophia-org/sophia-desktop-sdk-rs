@@ -116,6 +116,8 @@ enum Current {
     Submission {
         bytes: Vec<u8>,
         submission_id: u64,
+        /// The record's kind, which its `Submitted` event must name.
+        kind: ShellFileKind,
         ticket: u64,
         /// The exact `submit` bytes, once built, for an `EAGAIN` retry.
         submit: Vec<u8>,
@@ -214,6 +216,8 @@ const MAX_FETCH_RESTARTS: u8 = 2;
 pub(crate) struct FileWire {
     pipeline: Pipeline,
     epoch: u64,
+    /// The negotiated capabilities: which snapshot feeds may be announced.
+    capabilities: u64,
     root: Fid,
     events_fid: Fid,
     submit_fid: Fid,

@@ -298,6 +298,7 @@ impl FileWire {
         let wire = FileWire {
             pipeline,
             epoch: connection_epoch,
+            capabilities: welcome.capabilities,
             root,
             events_fid,
             submit_fid,
