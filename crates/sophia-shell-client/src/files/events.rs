@@ -67,7 +67,10 @@ impl FileWire {
         &mut self,
         inbox: &mut VecDeque<Inbound>,
     ) -> Result<bool, ShellClientError> {
-        check_record_length(&self.event_buf)?;
+        if let Err(error) = check_record_length(&self.event_buf) {
+            self.event_fault = true;
+            return Err(error);
+        }
         if self.object_fetch.is_some() {
             return Ok(false);
         }
@@ -84,7 +87,10 @@ impl FileWire {
             return Ok(false);
         }
         let record: Vec<u8> = self.event_buf.drain(..size).collect();
-        self.handle_event(record, inbox)?;
+        if let Err(error) = self.handle_event(record, inbox) {
+            self.event_fault = true;
+            return Err(error);
+        }
         self.progress += 1;
         Ok(true)
     }
@@ -94,6 +100,9 @@ impl FileWire {
     /// same length, epoch and rising-sequence checks as ever, and the walk
     /// stops at the first that fails; nothing else is delivered.
     pub(super) fn observe_custody_after_close(&mut self) {
+        if self.event_fault {
+            return;
+        }
         let mut submitted = Vec::new();
         let mut rest = &self.event_buf[..];
         let mut last = self.ack_ready;
@@ -335,6 +344,11 @@ impl FileWire {
                 if fetch.buf.len() + data.len() > cap {
                     return Err(ShellClientError::Protocol("snapshot object over its cap"));
                 }
+                // Exact growth: capacity never passes the cap.
+                fetch
+                    .buf
+                    .try_reserve_exact(data.len())
+                    .map_err(|_| ShellClientError::Protocol("snapshot object allocation"))?;
                 fetch.buf.extend_from_slice(data);
                 let offset = fetch.buf.len() as u64;
                 let phase = if fetch.buf.len() == cap {
@@ -393,6 +407,11 @@ impl FileWire {
             }
             ShellFileKind::Catalog => {
                 let value = decode_shell_file_catalog(&fetch.buf)?;
+                if super::budget::catalog_bytes(&value.catalog) > super::budget::CATALOG_BUDGET {
+                    return Err(ShellClientError::Protocol(
+                        "decoded catalog over its budget",
+                    ));
+                }
                 (
                     value.catalog.catalog.generation,
                     Inbound::Catalog(value.transaction, value.catalog),
@@ -400,6 +419,13 @@ impl FileWire {
             }
             ShellFileKind::Indicators => {
                 let value = decode_shell_file_indicators(&fetch.buf)?;
+                if super::budget::indicators_bytes(&value.snapshot)
+                    > super::budget::INDICATORS_BUDGET
+                {
+                    return Err(ShellClientError::Protocol(
+                        "decoded indicators over its budget",
+                    ));
+                }
                 (
                     value.snapshot.generation,
                     Inbound::Indicators(value.transaction, value.snapshot),

@@ -29,6 +29,9 @@ impl FileWire {
         let result = self.drive(output, inbox);
         if let Err(error) = &result {
             self.fatal = Some(error.clone());
+            // Buffered events are still trusted unless one of them caused
+            // the failure: a Submitted among them settles custody.
+            self.observe_custody_after_close();
         }
         if result.is_err() || self.peer_closed {
             self.classify_terminal(output);
@@ -115,9 +118,9 @@ impl FileWire {
                 // (a final `Submitted` among them settles custody), each
                 // under the same checks as ever; nothing past a bad one.
                 while self.process_buffered_event(inbox)? {}
-                if self.object_fetch.is_some() {
-                    self.observe_custody_after_close();
-                }
+                // Events the drain could not reach (a fetch holds them back,
+                // or the inbox is full) still settle custody.
+                self.observe_custody_after_close();
                 return Ok(());
             }
             let mut progressed = false;
@@ -176,6 +179,9 @@ impl FileWire {
         match reply {
             Reply::Read(data) => {
                 self.read_offset += data.len() as u64;
+                self.event_buf
+                    .try_reserve_exact(data.len())
+                    .map_err(|_| ShellClientError::Protocol("event buffer allocation"))?;
                 self.event_buf.extend_from_slice(&data);
                 Ok(())
             }

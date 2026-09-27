@@ -34,6 +34,7 @@ use crate::custody::Custody;
 use crate::wire::Outbound;
 use crate::{ShellClientError, client_record};
 
+mod budget;
 mod connect;
 mod drive;
 mod events;
@@ -261,6 +262,8 @@ pub(crate) struct FileWire {
     forgettable: HashSet<Tag>,
 
     peer_closed: bool,
+    /// An event failed to parse or apply: bytes after it prove nothing.
+    event_fault: bool,
     /// A connection-ending failure, returned again by every later call.
     fatal: Option<ShellClientError>,
 }

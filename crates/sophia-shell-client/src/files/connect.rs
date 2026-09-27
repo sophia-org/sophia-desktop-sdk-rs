@@ -324,6 +324,7 @@ impl FileWire {
             uploads: Default::default(),
             forgettable: pending_forgettable.into_iter().collect(),
             peer_closed: false,
+            event_fault: false,
             fatal: None,
         };
         Ok((wire, welcome, inbox))
