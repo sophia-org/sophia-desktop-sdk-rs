@@ -108,6 +108,8 @@ enum SubmissionPhase {
         fid: Fid,
         not_before: Instant,
         progress: u64,
+        /// The `poll_io` pass that saw the refusal; a retry needs a later one.
+        pass: u64,
     },
     /// `submit` returned `Rwrite`; waiting for the `Submitted` event.
     AwaitSubmitted,
@@ -133,8 +135,9 @@ enum Current {
         remaining: Vec<u8>,
         tag: Option<Tag>,
         ticket: u64,
-        /// Set after `EAGAIN`: no write before this instant.
-        not_before: Option<Instant>,
+        /// Set after `EAGAIN`: no write before this instant, nor in the
+        /// same `poll_io` pass.
+        not_before: Option<(Instant, u64)>,
         /// Some bytes already returned `Rwrite`.
         wrote_any: bool,
     },
@@ -241,6 +244,12 @@ pub(crate) struct FileWire {
     holds: [Option<u64>; 3],
     /// Events handled so far; an `EAGAIN` retry waits for this to move.
     progress: u64,
+    /// `poll_io` calls so far.
+    pass: u64,
+    /// A `Submitted` found among the buffered events while the submit reply
+    /// was being settled, before normal intake reaches it; intake accepts
+    /// that one event once.
+    early_submitted: Option<(u64, ShellFileKind)>,
 
     // Outbound: a single lane, mirroring `ClientOutbox`'s FIFO order.
     pending: VecDeque<QueuedKind>,
@@ -351,6 +360,21 @@ fn assemble_candidate(
 }
 
 impl FileWire {
+    /// Releases `fid` without waiting for the answer. On a pipeline that has
+    /// already failed there is nothing left to release, and the failure that
+    /// ended it is reported where it happened, not as this housekeeping step.
+    /// On a live pipeline a clunk that cannot be queued (a local bound) is an
+    /// error: the fid would otherwise stay open on the server, holding its
+    /// pin or staging, while this side forgot it.
+    fn forget(&mut self, fid: Fid) -> Result<(), ShellClientError> {
+        if self.pipeline.is_poisoned() {
+            return Ok(());
+        }
+        let tag = self.pipeline.clunk(fid)?;
+        self.forgettable.insert(tag);
+        Ok(())
+    }
+
     pub(crate) fn peer_closed(&self) -> bool {
         self.peer_closed
     }

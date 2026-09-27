@@ -101,6 +101,12 @@ impl FileWire {
         submission: u64,
         candidate_kind: ShellFileKind,
     ) -> Result<(), ShellClientError> {
+        if self.early_submitted == Some((submission, candidate_kind)) {
+            // Already settled from the buffered events (see
+            // `settle_buffered_submitted`); this is that same event.
+            self.early_submitted = None;
+            return Ok(());
+        }
         let Some(Current::Submission {
             submission_id,
             kind,
@@ -139,13 +145,14 @@ impl FileWire {
                     fid,
                     not_before,
                     progress,
+                    pass,
                 },
             ..
         }) = &self.current
         else {
             return Ok(false);
         };
-        if self.progress == *progress && now < *not_before {
+        if self.pass == *pass || (self.progress == *progress && now < *not_before) {
             return Ok(false);
         }
         let fid = *fid;
@@ -154,6 +161,28 @@ impl FileWire {
             *phase = SubmissionPhase::WriteSubmit { tag, fid };
         }
         Ok(true)
+    }
+
+    /// Marks the current submission Submitted if its `Submitted` event is
+    /// among the buffered events that pass normal intake's checks, and lets
+    /// intake accept that event once when it gets there.
+    fn settle_buffered_submitted(&mut self) {
+        let Some(Current::Submission {
+            submission_id,
+            kind,
+            submitted: false,
+            phase: SubmissionPhase::WriteSubmit { .. } | SubmissionPhase::AwaitSubmitted,
+            ..
+        }) = &self.current
+        else {
+            return;
+        };
+        let target = (*submission_id, *kind);
+        if self.buffered_submissions().contains(&target)
+            && self.on_submitted(target.0, target.1).is_ok()
+        {
+            self.early_submitted = Some(target);
+        }
     }
 
     /// The instant a pending `EAGAIN` retry becomes due without event
@@ -165,7 +194,7 @@ impl FileWire {
                 ..
             }) => Some(*not_before),
             Some(Current::SlotWrite {
-                not_before: Some(not_before),
+                not_before: Some((not_before, _)),
                 ..
             }) => Some(*not_before),
             _ => None,
@@ -193,7 +222,6 @@ impl FileWire {
             submission_id,
             submit,
             phase,
-            submitted,
             ..
         }) = &mut self.current
         else {
@@ -238,6 +266,17 @@ impl FileWire {
                 )),
             },
             SubmissionPhase::WriteSubmit { tag: t, fid } if t == tag => {
+                if matches!(reply, Reply::Error(_)) {
+                    // The same drain may have buffered this submission's
+                    // Submitted ahead of the error; settle from it first.
+                    self.settle_buffered_submitted();
+                }
+                let Some(Current::Submission {
+                    submitted, submit, ..
+                }) = &self.current
+                else {
+                    return Ok(true);
+                };
                 let seen = *submitted;
                 let exact = submit.len();
                 match reply {
@@ -250,13 +289,14 @@ impl FileWire {
                         if seen {
                             return Err(ShellClientError::Protocol("EAGAIN after Submitted"));
                         }
-                        let progress = self.progress;
+                        let (progress, pass) = (self.progress, self.pass);
                         let not_before = Instant::now() + self.next_backoff();
                         if let Some(Current::Submission { phase, .. }) = &mut self.current {
                             *phase = SubmissionPhase::RetryWait {
                                 fid,
                                 not_before,
                                 progress,
+                                pass,
                             };
                         }
                         return Ok(true);
@@ -281,8 +321,7 @@ impl FileWire {
                     Reply::Error(errno) => {
                         // A definitive refusal: nothing was journaled.
                         let errno = errno.0;
-                        let clunk = self.pipeline.clunk(fid)?;
-                        self.forgettable.insert(clunk);
+                        self.forget(fid)?;
                         self.backoff = RETRY_FIRST;
                         self.settle_current(Custody::Refused(errno));
                         return Ok(true);
@@ -292,8 +331,7 @@ impl FileWire {
                 // `submit` accepted: clunk the transaction (a submitted
                 // candidate is immutable; clunk cannot undo it) and settle
                 // once `Submitted` has been observed too.
-                let clunk = self.pipeline.clunk(fid)?;
-                self.forgettable.insert(clunk);
+                self.forget(fid)?;
                 self.backoff = RETRY_FIRST;
                 if let Some(Current::Submission { phase, .. }) = &mut self.current {
                     *phase = SubmissionPhase::AwaitSubmitted;

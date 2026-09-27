@@ -26,6 +26,7 @@ impl FileWire {
         if let Some(error) = &self.fatal {
             return Err(error.clone());
         }
+        self.pass += 1;
         let result = self.drive(output, inbox);
         if let Err(error) = &result {
             self.fatal = Some(error.clone());
@@ -111,7 +112,9 @@ impl FileWire {
             // `connect::wait_ok`'s doc comment for why one may still be
             // sitting in the pipeline's completed queue) before treating the
             // peer as gone.
-            self.drain_replies(inbox)?;
+            // A reply handler may queue the next request (an open after a
+            // walk); the next round's `poll` writes it, in this same pass.
+            let drained = self.drain_replies(inbox)?;
             if eof || self.peer_closed || self.pipeline.is_poisoned() {
                 self.peer_closed = true;
                 // Whatever complete events already arrived still count
@@ -123,7 +126,7 @@ impl FileWire {
                 self.observe_custody_after_close();
                 return Ok(());
             }
-            let mut progressed = false;
+            let mut progressed = drained;
             for _ in 0..std::mem::take(&mut self.retire) {
                 output.retire_front();
             }
@@ -142,14 +145,23 @@ impl FileWire {
     }
 
     fn drain_replies(&mut self, inbox: &mut VecDeque<Inbound>) -> Result<bool, ShellClientError> {
-        let mut progressed = false;
+        // Buffer the events this drain carries before judging any other
+        // reply: a submit error must see a Submitted that arrived in the same
+        // drain, whichever order the two replies came in. Buffering events
+        // only appends; handling them stays strictly in order.
+        let mut replies = Vec::new();
+        let mut read = false;
         while let Some((tag, reply)) = self.pipeline.take_reply() {
-            progressed = true;
-            if self.forgettable.remove(&tag) {
-                continue;
-            }
             if Some(tag) == self.read_tag {
                 self.on_read_reply(tag, reply)?;
+                read = true;
+            } else {
+                replies.push((tag, reply));
+            }
+        }
+        let progressed = read || !replies.is_empty();
+        for (tag, reply) in replies {
+            if self.forgettable.remove(&tag) {
                 continue;
             }
             if Some(tag) == self.ack_tag {

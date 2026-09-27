@@ -314,6 +314,8 @@ impl FileWire {
             object_fetch: None,
             holds: [None; 3],
             progress: 0,
+            pass: 0,
+            early_submitted: None,
             pending: VecDeque::new(),
             staged: Vec::new(),
             staged_begin: None,
