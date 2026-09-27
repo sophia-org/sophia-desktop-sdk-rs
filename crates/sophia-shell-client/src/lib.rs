@@ -424,6 +424,7 @@ fn server_record(record: &ShellContentRecord) -> bool {
     )
 }
 
+#[cfg(feature = "ipc-compat")]
 fn io_error(error: std::io::Error) -> ShellClientError {
     ShellClientError::Io(error.to_string())
 }

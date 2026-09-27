@@ -10,6 +10,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sophia_shell_client::*;
 #[cfg(feature = "ipc-compat")]
 use sophia_shell_ipc::*;
+#[cfg(feature = "ipc-compat")]
 use sophia_shell_protocol::*;
 
 #[cfg(feature = "ipc-compat")]

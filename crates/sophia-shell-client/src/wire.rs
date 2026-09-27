@@ -19,6 +19,13 @@ use crate::{ShellClientError, outbox::ClientOutbox};
 
 /// One whole client-to-session unit. Named for what it means, never for how
 /// many frames a wire needs to carry it.
+#[cfg_attr(
+    not(feature = "ipc-compat"),
+    expect(
+        dead_code,
+        reason = "the file wire does not carry indicator and catalog units yet"
+    )
+)]
 pub(crate) enum Outbound {
     /// One content record.
     Content(TransactionId, ShellContentRecord),
@@ -68,6 +75,13 @@ impl Outbound {
 /// One whole session-to-client unit. A multi-frame wire transfer (indicator
 /// Begin/.../End, catalog Begin/Entry/Identity/End) is assembled inside the
 /// owning wire and only ever surfaces here as one complete value.
+#[cfg_attr(
+    not(feature = "ipc-compat"),
+    expect(
+        dead_code,
+        reason = "the file wire does not carry indicator and catalog units yet"
+    )
+)]
 pub(crate) enum Inbound {
     Content(TransactionId, ShellContentRecord),
     Indicators(TransactionId, ShellIndicatorSnapshot),
@@ -107,8 +121,10 @@ impl Wire {
     /// for the socket wire, whose outbox frames are themselves the units on
     /// the wire.
     pub(crate) fn commit_encoded(&mut self) {
-        if let Wire::Files(files) = self {
-            files.commit_encoded();
+        match self {
+            #[cfg(feature = "ipc-compat")]
+            Wire::Socket(_) => {}
+            Wire::Files(files) => files.commit_encoded(),
         }
     }
 
