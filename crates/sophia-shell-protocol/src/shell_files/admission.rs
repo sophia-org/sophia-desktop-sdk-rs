@@ -35,6 +35,24 @@ pub fn decode_shell_file_negotiate(
     Ok(hello)
 }
 
+/// The welcome's descriptor and label bounds, carried unchanged from the
+/// socket `ServerWelcome` (`sophia-shell-v1.kdl` max-descriptors and
+/// max-label-bytes): a `Negotiated` event names between one and this many.
+pub const SHELL_FILE_MAX_DESCRIPTORS: u16 = 16;
+pub const SHELL_FILE_MAX_LABEL_BYTES: u16 = 128;
+
+/// Both directions refuse a welcome whose descriptor or label bound is zero
+/// or past the session vocabulary.
+fn welcome_bounds(welcome: &crate::ShellV1ServerWelcome) -> Result<(), ShellFilePayloadError> {
+    if (1..=SHELL_FILE_MAX_DESCRIPTORS).contains(&welcome.max_descriptors)
+        && (1..=SHELL_FILE_MAX_LABEL_BYTES).contains(&welcome.max_label_bytes)
+    {
+        Ok(())
+    } else {
+        Err(ShellFilePayloadError::Value)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ShellFileNegotiated {
     pub welcome: crate::ShellV1ServerWelcome,
@@ -60,6 +78,7 @@ pub fn encode_shell_file_negotiated_body(
     if welcome.selected_revision == 0 || welcome.connection_epoch == 0 {
         return Err(ShellFilePayloadError::Identity);
     }
+    welcome_bounds(&welcome)?;
     let mut body = Vec::with_capacity(32);
     body.extend(welcome.selected_revision.to_le_bytes());
     body.extend(0u16.to_le_bytes());
@@ -91,6 +110,7 @@ pub fn decode_shell_file_negotiated(
         return Err(ShellFilePayloadError::Identity);
     }
     same_epoch(r.header, welcome.connection_epoch)?;
+    welcome_bounds(&welcome)?;
     let lp = u16_at(r.body, 26)?;
     if lp > 1 {
         return Err(ShellFilePayloadError::Value);
