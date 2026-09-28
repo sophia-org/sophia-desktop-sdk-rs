@@ -66,3 +66,11 @@ This model prepares the descriptor file role; it does not add that role to
 the served contract or enable it in the client. The spec copies and wire kinds
 are unchanged. The new model tests cover cardinalities, exact action identity,
 family-specific text and selection rules, style bounds and outcome epochs.
+
+The native `encoding::descriptor` whole-object values implement the layout
+proposal in Sophia ADR `4oapm903` at `262eb82bc`: Descriptors, Tabs and
+Shortcuts after the domain transaction. They are newly written against those
+offsets, not copies of socket frames. Literal-byte tests cover every prefix
+and row, maximum object sizes, padding, optional-value flags and truncation.
+The published shell file kind list and client role remain unchanged until
+the complete descriptor amendment is implemented and accepted.
