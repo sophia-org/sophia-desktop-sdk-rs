@@ -97,3 +97,29 @@ removal compiles and fails the cross-epoch refusal control.
 The descriptor client role, production export and independent C peer are not
 implemented by these codec commits. This branch remains unpublished until
 those pieces and the contract amendment agree.
+
+## Descriptor file client
+
+The client now reads the pre-admitted API role separately from capability bit
+0, validates the descriptor capability families and selects the plain catalog
+when that role requests it. Metadata-only admission does not fetch Limits;
+content admission requires Limits bound to the attach in both the envelope
+and grant. Bootstrap events require ordered, current-epoch custody before
+Negotiated. No socket compatibility encoding was added.
+
+The three new snapshot feeds use the existing immutable-object fetch and ack
+holds, with individual encoded caps and decoded allocation budgets. Descriptor
+candidates use the existing typed outbox and Submitted custody lane;
+activation acknowledgements use its reserved control capacity. The client
+does not present geometry, commit work areas or decide action admission.
+
+Scripted 9P tests cover all seventeen kinds, maximum cardinalities and text
+sizes, fragmented object reads, supersession, role and family refusals,
+metadata-only and combined admission, plain catalogs, indicators and queued
+custody. Bootstrap controls cover stale epochs, repeated sequences, missing
+or duplicate custody, invalid record lengths and both Limits identities.
+The default and all-feature workspace gates pass 664 tests in total, with
+strict clippy in both configurations and formatting clean. Compiled mutations
+removing the role gate, snapshot ack hold and Limits grant-epoch check each
+fail their specific assertions. Production export and independent C peer
+gates remain outstanding; the branch stays unpublished.
