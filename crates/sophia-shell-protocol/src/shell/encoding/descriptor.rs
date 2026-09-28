@@ -5,6 +5,32 @@ use super::{ValueError, Wire, put_text_padded, reserved, rows, table_count, take
 use crate::byte_cursor::Cursor;
 use crate::*;
 
+mod candidates;
+mod events;
+pub use candidates::*;
+pub use events::*;
+
+// Every entry validates before an infallible writer, and after a decoder
+// has consumed exactly one complete value. Envelopes and custody stay outside.
+macro_rules! value_codec {
+    ($encode:ident, $decode:ident, $ty:ty, $validate:expr) => {
+        pub fn $encode(value: &$ty) -> Result<Vec<u8>, ValueError> {
+            ($validate)(value)?;
+            let mut bytes = Vec::new();
+            value.put(&mut bytes);
+            Ok(bytes)
+        }
+        pub fn $decode(bytes: &[u8]) -> Result<$ty, ValueError> {
+            let mut cursor = Cursor::new(bytes);
+            let value = <$ty>::take(&mut cursor)?;
+            cursor.finish()?;
+            ($validate)(&value)?;
+            Ok(value)
+        }
+    };
+}
+pub(super) use value_codec;
+
 const DESCRIPTOR_BYTES: usize = 196;
 const GROUP_BYTES: usize = 24;
 const SHORTCUT_BYTES: usize = 408;

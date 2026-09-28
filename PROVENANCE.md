@@ -74,3 +74,13 @@ offsets, not copies of socket frames. Literal-byte tests cover every prefix
 and row, maximum object sizes, padding, optional-value flags and truncation.
 The published shell file kind list and client role remain unchanged until
 the complete descriptor amendment is implemented and accepted.
+
+The same proposal now has native event and candidate values for descriptor,
+tab, reference and revision-4 launcher records. Literal-byte controls cover
+all fourteen values, enum tags, the shared launcher activation identity,
+reserved words, complete tables, text padding and individual size caps.
+Every truncation and trailing data are refused. Two compiled mutations
+(accepting a non-boolean acknowledgement and changing a reservation edge tag)
+fail these controls. The default and all-feature workspace gates pass 624
+tests in total, with strict clippy in both configurations. These are still
+value codecs only; no file kinds or served roles have been enabled.
