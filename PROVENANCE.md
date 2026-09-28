@@ -82,5 +82,18 @@ reserved words, complete tables, text padding and individual size caps.
 Every truncation and trailing data are refused. Two compiled mutations
 (accepting a non-boolean acknowledgement and changing a reservation edge tag)
 fail these controls. The default and all-feature workspace gates pass 624
-tests in total, with strict clippy in both configurations. These are still
-value codecs only; no file kinds or served roles have been enabled.
+tests in total, with strict clippy in both configurations. That slice supplies
+value codecs only.
+
+The following file-envelope slice assigns the proposal's seventeen kinds,
+checks header class and domain identity, and preserves per-kind size bounds.
+The byte-identical layout proposal from Sophia `262eb82bc` is copied to
+`spec/descriptor-files-proposal.kdl`; it stays separate from the unchanged
+published contract. KDL completeness checks include that proposal, with no
+old record or assertion removed. The default and all-feature suites pass
+632 tests in total, with strict clippy in both configurations. An epoch-check
+removal compiles and fails the cross-epoch refusal control.
+
+The descriptor client role, production export and independent C peer are not
+implemented by these codec commits. This branch remains unpublished until
+those pieces and the contract amendment agree.
