@@ -35,17 +35,19 @@ pub fn decode_shell_file_negotiate(
     Ok(hello)
 }
 
-/// The welcome's descriptor and label bounds, carried unchanged from the
-/// socket `ServerWelcome` (`sophia-shell-v1.kdl` max-descriptors and
-/// max-label-bytes): a `Negotiated` event names between one and this many.
+/// The shell role's welcome limits, which every `Negotiated` event carries
+/// for every selected profile (`sophia-shell-files-v1.kdl` Negotiated): each
+/// is between one and this many. Zero is not an unused-field marker.
 pub const SHELL_FILE_MAX_DESCRIPTORS: u16 = 16;
 pub const SHELL_FILE_MAX_LABEL_BYTES: u16 = 128;
+pub const SHELL_FILE_MAX_PENDING_ACTIVATIONS: u16 = 16;
 
-/// Both directions refuse a welcome whose descriptor or label bound is zero
-/// or past the session vocabulary.
+/// Both directions refuse a welcome whose descriptor, label or pending
+/// activation limit is zero or past the shell role's maximum.
 fn welcome_bounds(welcome: &crate::ShellV1ServerWelcome) -> Result<(), ShellFilePayloadError> {
     if (1..=SHELL_FILE_MAX_DESCRIPTORS).contains(&welcome.max_descriptors)
         && (1..=SHELL_FILE_MAX_LABEL_BYTES).contains(&welcome.max_label_bytes)
+        && (1..=SHELL_FILE_MAX_PENDING_ACTIVATIONS).contains(&welcome.max_pending_activations)
     {
         Ok(())
     } else {

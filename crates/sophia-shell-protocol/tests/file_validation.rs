@@ -380,3 +380,62 @@ fn negotiated_bounds_preserve_every_revision_and_capability_mask() {
         }
     }
 }
+
+// ---------------------------------------------------------------------
+// Negotiated: 1..=16 pending activations, for every profile.
+// ---------------------------------------------------------------------
+
+fn with_pending(pending: u16) -> ShellFileNegotiated {
+    let mut value = negotiated(6, 16, 128);
+    value.welcome.max_pending_activations = pending;
+    value
+}
+
+#[test]
+fn negotiated_pending_activations_are_one_to_sixteen_on_encode() {
+    for pending in [1, 16] {
+        let bytes =
+            encode_shell_file_negotiated(negotiated_header(), with_pending(pending)).unwrap();
+        assert_eq!(
+            decode_shell_file_negotiated(&bytes).unwrap(),
+            with_pending(pending)
+        );
+    }
+    for pending in [0, 17, u16::MAX] {
+        assert_eq!(
+            encode_shell_file_negotiated(negotiated_header(), with_pending(pending)),
+            Err(ShellFilePayloadError::Value),
+            "{pending} pending activations"
+        );
+    }
+}
+
+/// An incoming `Negotiated` event with pending activations at body offset 24
+/// outside 1..=16 is refused, whichever revision was selected.
+#[test]
+fn incoming_negotiated_with_zero_or_excess_pending_activations_is_refused() {
+    for revision in [6, 7, 8] {
+        let valid =
+            encode_shell_file_negotiated(negotiated_header(), negotiated(revision, 16, 128))
+                .unwrap();
+        let at = SHELL_FILE_HEADER_BYTES + 24;
+        for pending in [0u16, 17, u16::MAX] {
+            let mut bytes = valid.clone();
+            bytes[at..at + 2].copy_from_slice(&pending.to_le_bytes());
+            assert_eq!(
+                decode_shell_file_negotiated(&bytes),
+                Err(ShellFilePayloadError::Value),
+                "revision {revision} pending {pending}"
+            );
+        }
+        let mut one = valid.clone();
+        one[at..at + 2].copy_from_slice(&1u16.to_le_bytes());
+        assert_eq!(
+            decode_shell_file_negotiated(&one)
+                .unwrap()
+                .welcome
+                .max_pending_activations,
+            1
+        );
+    }
+}
