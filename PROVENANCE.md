@@ -20,6 +20,9 @@ merge). Later changes are made here first; Sophia vendors a pinned snapshot.
 | `spec/references/diod-9p2000L-protocol.md` | `docs/references/diod-9p2000L-protocol.md` (GPL; reference only, see its notice) |
 | `spec/golden/sophia-shell-*.frames` | `protocol/golden/` (content, content-malformed, catalog-actions, indicators, launcher, v1, v1-malformed) |
 
+| `sophia-lock-protocol` | `crates/sophia-protocol/src/{lock_files,byte_cursor.rs,codec_error.rs}` and tests `lock_files.rs`, `lock_file_schema.rs`, `lock_file_golden.rs`, `support/file_schema.rs`, at `fd6ea7538` (branch `lock/t034-next`, unmerged) |
+| `spec/sophia-lock-files-v1.kdl`, `spec/sophia-lock-files.md`, `spec/golden/sophia-lock-files-v1.records` | `protocol/sophia-lock-files-v1.kdl`, `docs/sophia-lock-files.md`, `protocol/golden/sophia-lock-files-v1.records` at `fd6ea7538` |
+
 Edits made on extraction: crate paths, crate roots and manifests, doc links
 that named server modules, the socket wire behind `ipc-compat`, and the KDL
 path in the conformance tests.
@@ -239,3 +242,15 @@ digests are unchanged.
 carry a keyboard output and bindings while modifier keys pass through. This
 SDK has no WM client, so none of that is implemented here. Library sources,
 wire layouts and the other spec digests are unchanged.
+
+## Lock provider codec (draft)
+
+`sophia-lock-protocol` is extracted from Sophia `fd6ea7538` on
+`lock/t034-next` (t294), which is not merged: the lock contract is a draft and
+can change until Sophia merges it. The lock codec files are unmodified. Edits
+on extraction: `codec_error.rs` drops the conversions from Sophia's shell
+`ValueError` and `InvalidRecord`, which the lock codec never uses;
+`byte_cursor.rs` drops the `u8`/`i32` reads and writes, which it never uses;
+the tests take the KDL and golden records from `spec/`, and the golden test
+only checks Sophia's file, never regenerates it. The C SDK's lock files pin
+the same three contract copies.

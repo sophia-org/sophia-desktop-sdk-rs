@@ -108,6 +108,13 @@ name = "sophia-desktop-ids"
 version = "0.2.0"
 
 [[package]]
+name = "sophia-lock-protocol"
+version = "0.2.0"
+dependencies = [
+ "kdl",
+]
+
+[[package]]
 name = "sophia-shell-client"
 version = "0.2.0"
 dependencies = [
