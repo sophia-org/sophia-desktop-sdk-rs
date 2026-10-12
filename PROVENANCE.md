@@ -395,3 +395,17 @@ The authentication contract is copied from signed Sophia `c57cc30eedce72dfeacea6
 It adds a bounded approved-audience set on the private Session-to-Factotum
 owner interface. Public afid and launch-relay bytes are unchanged; no SDK
 implementation changes or new authentication qualification are claimed here.
+
+## Namespace discovery foundation
+
+`spec/namespace-discovery.md` is copied without modification from signed Sophia
+`2ef7e39b984dfba12f346c1f4d2b98e08edb6d65`. The discovery parser and Linux directory lookup are
+implemented independently against that contract. Local socket tests cover pinned
+directory identity, long endpoint names, symlink refusal and descriptor flags.
+These tests do not claim Session launch integration or authentication; endpoint
+visibility never grants permission.
+
+Qualification: the full Rust workspace tests, formatting and all-target Clippy with warnings denied pass; the new discovery crate has six tests. Removing the declared endpoint-count check makes the complete-line truncation test fail. The source and all candidate files were restored byte-for-byte. This control qualifies truncation refusal, not authentication or a live Session launch.
+
+- `t318-rs-discovery-01`: SHA256SUMS `33505120dfb446fac6cf96216c1e8d4b2ffb25cd67733ef4db08618d7d58a3f9`.
+- `t318-rs-discovery-count-control-01`: SHA256SUMS `2accef4c8b395582c20439ac9cc07470e16a0d7bac688b73b739d0e191f994ac`.
