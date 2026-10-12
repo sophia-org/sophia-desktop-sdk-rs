@@ -306,7 +306,7 @@ this is a development revision, not a new compatibility release.
 
 `spec/sophia-lock-files.md` and the newly copied
 `spec/factotum-launch-authentication.md` come from signed Sophia
-`3687343001243e0fbc9a6f69bbb5c5e64390321a`. They specify the protected launch
+`1d35469ca287adfeb7203d5a08dae1fa7ecfa666`. They specify the protected launch
 channel, Factotum afid exchange, immutable identity and current custody selected
 by the candidate's normal lock-provider startup. Record layouts and Rust code
 are unchanged. This SDK still provides only the generic afid primitives;
