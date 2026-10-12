@@ -301,3 +301,13 @@ also accepts ConnectionReset, which is a valid result when a peer closes with
 unread request bytes. There is no role-specific authentication policy here.
 Public enums gain variants, so exhaustive downstream matches must be updated;
 this is a development revision, not a new compatibility release.
+
+## Normal lock-provider admission contract
+
+`spec/sophia-lock-files.md` and the newly copied
+`spec/factotum-launch-authentication.md` come from signed Sophia
+`3687343001243e0fbc9a6f69bbb5c5e64390321a`. They specify the protected launch
+channel, Factotum afid exchange, immutable identity and current custody selected
+by the candidate's normal lock-provider startup. Record layouts and Rust code
+are unchanged. This SDK still provides only the generic afid primitives;
+the reusable launch exchange and a real protected Rust peer remain t317 work.
