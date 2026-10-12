@@ -409,3 +409,14 @@ Qualification: the full Rust workspace tests, formatting and all-target Clippy w
 
 - `t318-rs-discovery-01`: SHA256SUMS `33505120dfb446fac6cf96216c1e8d4b2ffb25cd67733ef4db08618d7d58a3f9`.
 - `t318-rs-discovery-count-control-01`: SHA256SUMS `2accef4c8b395582c20439ac9cc07470e16a0d7bac688b73b739d0e191f994ac`.
+
+## Sequential recipe endpoint authentication
+
+The launch helper can reuse the completed conversation's exclusive, quiescent
+relay for another endpoint without resetting the first role transport. Pending
+relay work refuses. Independent scripted peers exercise both properties; no
+production multi-endpoint launch is claimed by this SDK-only run. All ten launch-client tests and all-target Clippy pass.
+
+Evidence `t318-rs-relay-01` has SHA256SUMS SHA-256
+`5f977b28ea9941fe9459fb65b8efef5850adb0648e4cf84d74b76aa69e650625`. The candidate hashes cover
+all modified/untracked files at the run; this provenance addition follows it.

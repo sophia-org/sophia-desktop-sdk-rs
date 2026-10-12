@@ -38,6 +38,13 @@ lookups in the same generation. No method follows a mutable `current` symlink
 or changes the process working directory. Local tests are not yet a production
 Session launch qualification.
 
+For several 9P endpoints in one approved recipe, keep the admitted role pipeline
+and pass its returned relay pipeline to `sophia_launch_client::Client::over_relay`
+with the next endpoint stream. This transfers exclusive relay ownership and
+refuses outstanding work. Only the relay is reset; existing role roots remain
+untouched. Do not duplicate the relay between drivers. Authentication failure
+closes the relay and can revoke the launch; there is no unauthenticated retry.
+
 `spec/sophia-shell-files-v1.kdl` is a pinned copy of the file contract Sophia
 owns (`protocol/sophia-shell-files-v1.kdl` in the Sophia repository).
 `spec/sophia-shell-files.md` is the normative text of the file
