@@ -371,3 +371,10 @@ The positive package retains executable paths/hashes, never binary copies.
 This provenance addition follows the captured candidate; implementation and
 tests are unchanged. Production interoperability and deployed-client migration
 remain separate gates.
+
+## Shared WM contract reconciliation
+
+The WM file contract copy now matches signed Sophia
+`bd9ee9460a28870ab15876e447ef5139e462efe5`, including normal authenticated
+WM startup and replacement. No codec or client implementation changes.
+This aligns the shared contract snapshot before the Rust shell production join.
