@@ -14,6 +14,7 @@ Sophia checkout to build.
 | `sophia-shell-protocol` | The shell's typed records and the `sophia_shell_fs_v1` file contract codec. |
 | `sophia-shell-client` | The shell client over the file contract. |
 | `sophia-wm-protocol` | The WM file codecs and passive policy records; no session client yet. |
+| `sophia-wm-client` | Typed, immutable candidates; session implementation in progress. |
 | `sophia-lock-protocol` | The lock provider's `sophia_lock_fs_v1` file contract codec (experimental; see Contracts). |
 
 The shell role is the only one with a full role client here. The lock provider role has

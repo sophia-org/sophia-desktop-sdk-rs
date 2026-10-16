@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 17, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 18, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -403,3 +403,13 @@ submission/ACK custody barriers, immutable same-ID retries, fixed deadlines,
 snapshot identity/EOF checks, release and explicit close. No profile activation,
 scene commit or application authority follows from codec-valid records. Paired
 session and production-export tests are required before WM parity is complete.
+
+Rust's developing `sophia-wm-client` now maps C's candidate record union to
+`Candidate`: profile Prepared/Active/RolledBack, Configuration, Dirty,
+Projection and SessionOperation. `encode` validates the selected capabilities
+and supplied identities, then owns immutable bytes. Profile transaction IDs
+remain server echoes; only configuration, projection and session operations
+contribute a domain transaction. Five tests cover every variant, a literal
+Dirty record, caller mutation, missing capabilities and invalid identities.
+These are preparation APIs only: no admission, retry or custody is claimed.
+The C implementation is unchanged; the session checklist above remains open.

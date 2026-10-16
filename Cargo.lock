@@ -148,6 +148,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sophia-wm-client"
+version = "0.3.0"
+dependencies = [
+ "sophia-wm-protocol",
+]
+
+[[package]]
 name = "sophia-wm-protocol"
 version = "0.3.0"
 dependencies = [
