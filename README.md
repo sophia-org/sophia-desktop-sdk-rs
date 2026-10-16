@@ -16,7 +16,7 @@ Sophia checkout to build.
 | `sophia-wm-protocol` | The WM file codecs and passive policy records. |
 | `sophia-wm-client` | Developing WM session with negotiation, events, custody and Cycle-bound snapshots. |
 | `sophia-output-protocol` | Output file codecs and passive topology values; no output session client yet. |
-| `sophia-output-client` | Provisional fixed-file startup; negotiation and the session driver remain in progress. |
+| `sophia-output-client` | Provisional startup and immutable submissions; journal handling and the session driver remain in progress. |
 | `sophia-lock-protocol` | The lock provider's `sophia_lock_fs_v1` file contract codec (experimental; see Contracts). |
 
 The shell role is the only one with a full role client here. The lock provider
