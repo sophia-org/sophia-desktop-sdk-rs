@@ -1,6 +1,6 @@
 # Portal SDK parity
 
-Revision 16, 2026-10-16. Recipient components are developing; there is no complete
+Revision 17, 2026-10-16. Recipient components are developing; there is no complete
 portal client or parity claim.
 
 The unchanged recipient contract in `spec/portal-client-files.md` comes from
@@ -258,3 +258,17 @@ absence preserves ENOENT; cancellation/expiry remain distinct from revocation.
 All eighteen external portal gates and strict Clippy pass. These do not measure
 idle cost or qualify malformed watch replies, clunk refusal, flush-based
 cancellation or reconnect recovery; those audits and release work remain.
+
+Independent scripted peers now qualify malformed watch replies and explicit
+root reuse. Empty and payload-bearing Rread, unrelated remote errors, directory
+walk replies, disconnect and failed clunk all leave revocation unavailable.
+ESTALE during open or the pending read completes only after clunk. Two explicit
+watches reuse the original root with one version/attach exchange, including
+one-byte dispatch and clock-regression checks. Both watch tests and strict Rust
+Clippy pass; no production behavior changed.
+
+This closes the malformed-reply/clunk gap for the standalone watch driver.
+It does not qualify reconnect after role loss or a shared recipient session.
+The next integration must route watch and foreground replies by their own
+tags on one pipeline, preserve independent object identities and bounded
+storage, and provide explicit cancellation without losing unrelated work.
