@@ -87,6 +87,9 @@ impl Submission {
     pub fn latest(&self) -> Option<(u64, Custody)> {
         self.latest
     }
+    pub(crate) fn kind(&self) -> Option<LockFileKind> {
+        self.value.as_ref().map(Prepared::kind)
+    }
     pub fn idle(&self) -> bool {
         self.stage == Stage::Idle
     }

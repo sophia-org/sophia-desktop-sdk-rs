@@ -15,21 +15,21 @@ Sophia checkout to build.
 | `sophia-shell-client` | The shell client over the file contract. |
 | `sophia-wm-protocol` | The WM file codecs and passive policy records. |
 | `sophia-wm-client` | Developing WM session with negotiation, events, custody and Cycle-bound snapshots. |
-| `sophia-output-protocol` | Output file codecs and passive topology values; no output session client yet. |
+| `sophia-output-protocol` | Output file codecs and passive topology values. |
 | `sophia-output-client` | Developing session with startup, submissions, journal and topology fetching; qualification remains incomplete. |
 | `sophia-lock-protocol` | The lock provider's `sophia_lock_fs_v1` file contract codec (experimental; see Contracts). |
-| `sophia-lock-client` | Experimental candidate preparation; the lock session remains in development. |
+| `sophia-lock-client` | Experimental lock session with startup, custody, events, object fetching and bounded uploads; production qualification remains open. |
 
-The shell role is the only one with a full role client here. The lock provider
-has an experimental codec and a developing client foundation. WM has a developing Rust client;
-output has a developing Rust session alongside its C client. Administration also lacks
-a Rust client. [API parity](API-PARITY.md) records the comparison and gaps.
+Shell, WM and output have native clients; their release qualification differs.
+The lock provider now has an experimental session against its draft contract.
+Administration still lacks a Rust client. [API parity](API-PARITY.md) records
+the comparison, evidence and remaining gaps.
 
 The WM protocol crate includes negotiation, profile handoff, snapshots,
 configuration, projection, Cycle events and outcome records. Its schema and
 golden corpus match the C SDK's pinned contract. Encoding a valid record does
-not establish custody or a committed scene; those require the pending session
-client's remaining operations and production-export qualification.
+not establish custody or a committed scene. See [WM parity](WM-PARITY.md) for
+the session's production evidence and remaining qualification limits.
 
 The developing output client also exposes `Connecting::direct` and `attached`.
 Drive startup with caller-monotonic milliseconds and a byte budget, then transfer

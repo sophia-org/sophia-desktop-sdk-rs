@@ -128,7 +128,7 @@ impl Opening {
         }
         let bounds = wire.limits();
         if !(4096..=65536).contains(&wire.msize())
-            || bounds.max_outstanding < 8
+            || bounds.max_outstanding < 6
             || bounds.max_fids < 16
             || bounds.max_buffered_input < 2 * wire.msize() as usize + 64
         {

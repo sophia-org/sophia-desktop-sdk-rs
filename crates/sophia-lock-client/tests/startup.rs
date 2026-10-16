@@ -282,7 +282,7 @@ fn undersized_pipelines_are_refused_before_opening_files() {
     let default = PipelineLimits::default();
     for bounds in [
         PipelineLimits {
-            max_outstanding: 7,
+            max_outstanding: 5,
             ..default
         },
         PipelineLimits {
