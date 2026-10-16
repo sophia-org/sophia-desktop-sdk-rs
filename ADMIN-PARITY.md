@@ -1,6 +1,6 @@
 # Administrative SDK parity
 
-Revision 6, 2026-10-16. Neither SDK yet provides the complete administrative
+Revision 7, 2026-10-16. Neither SDK yet provides the complete administrative
 client. This is required t333 work, not an unsupported-role waiver.
 
 The pinned file contract is copied unchanged from Sophia
@@ -102,3 +102,27 @@ caller to close its borrowed descriptor. C reports transport failures separately
 from snapshot/protocol failures and retains the raw transport result. Startup
 alone is not a usable command client: catalog retention/refresh, invocation
 custody, status scheduling, final facade and production gates remain.
+
+The provisional command tracker now validates catalog membership and owns one
+immutable encoded invocation. It distinguishes queued, issued, accepted,
+settled, explicitly refused, dropped-unsent and uncertain custody. A complete
+write error proves refusal; short replies, loss or expiry after issue preserve
+uncertainty. Close retains confirmed outcomes and refusals. No automatic replay
+is permitted. The session still owns monotonic request IDs and single-command
+admission.
+
+Status snapshots must match connection/request/catalog generation and the
+owner's legal success outcome. Pending schedules the next snapshot one
+millisecond later through caller wakeups. Each snapshot has a frame deadline;
+partial progress and repeated pending results cannot extend the original
+command deadline. All ten outcomes are retained, with catalog invalidation
+matching Session operations and stale/denied/indeterminate results. Up to 256
+detail bytes are copied once into retained result storage so later snapshot
+reuse cannot overwrite them. The tracker allocates no heap storage.
+
+Eight Rust client tests and C's independent command test pass, including all
+owner/outcome combinations, identity refusal, immutable bytes, custody on close,
+explicit/short write replies, frame/overall expiry, clock regression and pending
+cadence. Strict Clippy passes. These component tests do not establish the full
+command session: pipeline integration, retained catalog ownership, request
+sequencing, external-loop facade and paired production gates remain.

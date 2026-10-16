@@ -578,3 +578,7 @@ driver and its production qualification remain missing.
 
 Admin map 6 adds paired pipeline startup, bounded dispatch and same-connection
 handoff through info/ctl. Command sessions and production qualification remain.
+
+Admin map 7 adds paired immutable invocation custody and caller-driven status
+scheduling, retaining uncertain and confirmed outcomes distinctly. Full session
+integration and production gates remain.
