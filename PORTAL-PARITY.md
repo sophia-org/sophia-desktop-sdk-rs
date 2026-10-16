@@ -1,6 +1,6 @@
 # Portal SDK parity
 
-Revision 3, 2026-10-16. Recipient codecs are developing; there is no complete
+Revision 4, 2026-10-16. Recipient components are developing; there is no complete
 portal client or parity claim.
 
 The unchanged recipient contract in `spec/portal-client-files.md` comes from
@@ -41,3 +41,19 @@ Production gates and foreign-language bindings remain required.
 The trusted portal-requester is a separate authority and contract; no recipient
 API may approve transfers or claim executor custody. Requester coverage and the
 broker migration prerequisite remain explicit t333 work.
+
+Provisional metadata fetchers now emit Walk/Open/Read/Clunk operations for api,
+status and capture-status. They expose results only after EOF, decoding and
+successful clunk. Reads obey msize, iounit and per-file limits, with a one-byte
+EOF probe at the bound. Caller-monotonic absolute deadlines cannot be extended
+by partial progress. Refusals preserve wire errno and forbid automatic retry;
+the driver must match replies and close on terminal failure.
+
+Rust retains at most 101 bytes inline; C borrows caller storage. These fetchers
+allocate no storage themselves, though Rust's supplied transport Reply may own
+allocated data. They adapt each SDK's administrative snapshot driver without
+importing administrative authority or dependencies. Independent tests cover
+all three files, fragmentation, EOF/clunk barriers, overflow, malformed EOF,
+short iounit, refusal, expiry and clock regression. Three Rust component tests,
+C's snapshot test and strict Rust Clippy pass. They do not authenticate or own
+the connection; startup, frame streaming and production gates remain.
