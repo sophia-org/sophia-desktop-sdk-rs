@@ -1,7 +1,7 @@
 use crate::{LINE_MAX_BYTES, RecordError, decimal};
 use std::fmt::Write;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Owner {
     Policy,
     Session,
@@ -26,7 +26,7 @@ pub struct Invocation<'a> {
     pub name: &'a str,
 }
 
-fn valid_name(name: &str) -> bool {
+pub(crate) fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 128
         && !name.starts_with(' ')

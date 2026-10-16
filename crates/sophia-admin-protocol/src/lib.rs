@@ -7,6 +7,8 @@ mod invocation;
 pub use invocation::*;
 mod status;
 pub use status::*;
+mod catalog;
+pub use catalog::*;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RecordError;

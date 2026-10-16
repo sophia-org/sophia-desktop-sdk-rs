@@ -1,6 +1,6 @@
 # Administrative SDK parity
 
-Revision 3, 2026-10-16. Neither SDK yet provides the typed administrative
+Revision 4, 2026-10-16. Neither SDK yet provides the typed administrative
 client. This is required t333 work, not an unsupported-role waiver.
 
 The pinned file contract is copied unchanged from Sophia
@@ -48,5 +48,18 @@ storage. Neither language turns a syntactically valid name into catalog authorit
 Independent tests cover literal wire records, maximum IDs and name/detail
 lengths, all outcomes, borrowed pointers, short output buffers, every truncated
 prefix, malformed spelling and invalid text. Six Rust tests and the three C
-administrative test binaries pass, with strict Rust Clippy. Catalog decoding
-and the external-loop client remain; no production client gate is claimed.
+administrative test binaries pass, with strict Rust Clippy.
+
+Complete catalog decoding and binary-search membership lookup are now available
+in both SDKs. The catalog contains at most 259 inline rows whose names borrow
+the immutable input; neither parsing nor lookup allocates. Validation rejects
+zero/noncanonical generations, excessive counts, missing or surplus rows,
+duplicates, bad owner/name ordering, more than 256 policy actions and unsupported
+Session names. C leaves the output catalog unchanged on failure; Rust returns
+no catalog. Neither exposes a partially validated catalog.
+
+Nine Rust administrative tests and all four C administrative test binaries pass.
+Catalog tests cover all 259 commands, every truncated prefix of a literal
+two-row snapshot, the 256-policy boundary, 128-byte names, malformed snapshots,
+borrowed names and lookup. The external-loop clients and paired production
+gates remain; no performance measurement or client parity is claimed.

@@ -567,3 +567,7 @@ SDK yet has an administrative session client.
 Admin map 3 adds borrowed invocation/status decoding and bounded invocation
 encoding, including all ten outcomes and unchanged output on failure.
 Catalog and administrative session support remain missing in both SDKs.
+
+Admin map 4 adds bounded, allocation-free complete catalog decoding and
+binary-search membership lookup in both SDKs. Administrative session support
+and its production gates remain missing.
