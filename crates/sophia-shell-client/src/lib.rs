@@ -20,8 +20,8 @@ pub use native_launcher::NativeLauncherObservation;
 mod native_lifecycle;
 pub use native_lifecycle::{
     NativeActionReservation, NativeActionStatus, NativeAllocationParams, NativeInputReservation,
-    NativeInputStatus, NativeLauncherLifecycle, NativeLifecycleState, NativeResourceState,
-    NativeScene,
+    NativeInputStatus, NativeLauncherLifecycle, NativeLauncherSession, NativeLifecycleState,
+    NativeObligations, NativeResourceState, NativeScene, NativeSessionResponse,
 };
 mod outbox;
 pub use outbox::QueueReservation;

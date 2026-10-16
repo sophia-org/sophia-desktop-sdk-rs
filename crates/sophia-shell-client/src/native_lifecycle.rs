@@ -14,6 +14,8 @@ mod pacing;
 pub use pacing::NativeScene;
 mod action;
 pub use action::{NativeActionReservation, NativeActionStatus};
+mod session;
+pub use session::{NativeLauncherSession, NativeObligations, NativeSessionResponse};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NativeLifecycleState {

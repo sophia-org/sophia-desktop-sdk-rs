@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 11, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 12, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -245,6 +245,39 @@ and both split-refusal orders. Full Rust workspace tests, strict Clippy, the
 final 30-test native suite and C `make check` pass. Production exports remain
 pending; these are SDK-level controls.
 
-The integrated native facade remains open, as do delayed native reservations,
-other non-content batches and configurable queues.
+## Owning native facade and obligations
+
+Rust `NativeLauncherSession` owns a fresh negotiated connection, retains the
+current observation, assigns transaction IDs and exposes the native resource,
+allocation, pacing and response operations. `next_event` applies a head once;
+`done` cannot skip input or an Action owing an ACK. Response commit consumes it;
+Drop leaves it available without consuming transaction IDs. C `sophia_ns` borrows
+caller-owned `sophia_ss` storage and requires exclusive submission; its cancelled
+input reservation may leave unused transaction IDs. Both models avoid reuse of
+issued identities.
+
+Rust integrates bounded dispatch, descriptor/interests, transport wake deadlines
+and lifecycle service. C callers dispatch `sophia_ss` then service `sophia_ns`.
+Rust `obligations` matches the C scheduling hints for input, action, allocation,
+candidate and permit deadlines, missing snapshots/candidates, invalidation and
+lost ACKs. Action receipt plus timeout is only a hint; repeated head reads must
+not restart it. Neither SDK treats these hints as server authority. Rust's
+Instant transport clock and host-monotonic millisecond lifecycle clock must each
+advance monotonically. C uses host-monotonic milliseconds throughout.
+
+Rust applies fetched catalog/facts generations as their observations are returned;
+the caller installs their contents before presenting. C explicitly marks fetched
+snapshot generations with `sophia_ns_catalog/facts`. Rust's facade takes ownership
+on construction and drops the connection on construction failure; it requires
+Limits still in the fresh connection's inbox. C initialization leaves borrowed
+storage ownership with the caller.
+
+Five Rust facade controls cover initialization, retained input, response Drop,
+transaction exhaustion, clocks, disconnect and action hints. C independently
+checks that rereading an Action does not restart its hint, alongside its existing
+head and obligation controls. Full Rust workspace tests, strict Clippy, the final
+35 native tests and C's full suite pass. This does not close the whole helper
+inventory: explicit presentation-state access and the input edit-callback
+convenience still need operation-level review. Delayed native reservations,
+other non-content batches and configurable queues also remain open.
 These gaps still block full t333 parity and production adoption.

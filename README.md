@@ -91,7 +91,12 @@ caller-supplied margin are advisory; local expiry cannot authorize another
 demand before the server ends the old one. `action` exposes retained pointer
 events; `prepare_native_action` reserves an exact ACK and optional activation
 of any eligible displayed row. Drop preserves the event; commit consumes it.
-Cancellation events owe no ACK. The integrated facade still awaits parity.
+Cancellation events owe no ACK. `NativeLauncherSession` owns a fresh negotiated
+connection and combines these operations with ordered `next_event`/`done`,
+automatic transaction IDs, prepared responses, bounded `dispatch` and scheduling
+`obligations`. Its two supplied clocks are transport `Instant` and host monotonic
+milliseconds. Response Drop keeps the event; commit consumes it. Fetched
+catalog/facts observations must be installed by the caller before presenting.
 Never use local admission as proof of presentation or application startup.
 
 The protocol crate also carries the descriptor, tabs, shortcut/reference and

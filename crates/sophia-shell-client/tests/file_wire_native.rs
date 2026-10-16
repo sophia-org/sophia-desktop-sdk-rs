@@ -13,6 +13,8 @@ use std::time::Instant;
 const CAPS: u64 = (1 << 5) | (1 << 7) | (1 << 8) | (1 << 11);
 #[path = "support/native_lifecycle.rs"]
 mod lifecycle;
+#[path = "support/native_session.rs"]
+mod session;
 
 #[test]
 fn allocation_and_whole_native_candidate_reach_submitted() {

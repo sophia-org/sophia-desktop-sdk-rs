@@ -34,7 +34,7 @@ pub(super) fn validate_negotiated(
 }
 
 impl FileWire {
-    pub(super) fn require_native_launcher(&self) -> Result<(), ShellClientError> {
+    pub(crate) fn require_native_launcher(&self) -> Result<(), ShellClientError> {
         if !self.native_launcher {
             return Err(ShellClientError::MissingCapability);
         }

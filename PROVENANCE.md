@@ -1,5 +1,16 @@
 # Provenance
 
+## t333 owning native session
+
+`NativeLauncherSession` integrates exclusive connection ownership, retained
+events, transaction assignment, native operations and scheduling obligations.
+Five new controls cover initialization, repeated head reads, response Drop,
+transaction exhaustion, monotonic time, disconnect cleanup and action hints.
+The C suite independently checks that repeated Action reads keep the original
+hint. Full Rust workspace tests, strict Clippy, the final 35 native tests and
+C's full suite pass. Matrix 12 records ownership/clock/snapshot differences and
+remaining helper inventory; production-export qualification remains pending.
+
 ## t333 native pointer responses
 
 The lifecycle retains Actions until required ACK admission and constructs exact
