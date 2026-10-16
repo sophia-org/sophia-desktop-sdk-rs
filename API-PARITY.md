@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 8, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 9, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -180,9 +180,50 @@ are `native_session_test`'s focus, input, activation, catalog-invalidation,
 close and terminal controls. That C helper suite uses a session stand-in;
 production-export acceptance is still pending.
 
-This is not the complete C helper: resource/allocation ownership, pacing and
-advisory permit bounds, pointer action/ACK handling and the integrated facade
-remain to implement. The caller currently supplies valid resources/permits and
-handles pointer actions. Delayed native reservations, other non-content batches
-and configurable queue parity also remain open. These gaps block full t333
-parity and production adoption; the underlying protocol contract is available.
+## Native resources and pacing
+
+Rust now tracks allocation and resource ownership and frame demands/permits:
+
+| Operation | Native C | Native Rust |
+| --- | --- | --- |
+| Acquire/resize/release | `sophia_ns_allocate`, `sophia_ns_release` | `allocate_native`, `release_native_allocation` |
+| Upload | `sophia_ns_upload_begin/end/cancel`, `sophia_ss_upload_chunk` | `begin_native_resource`, `upload_native_chunk`, `end_native_resource`, `cancel_native_resource` |
+| Retire/release | `sophia_ns_retire`, resource events | `retire_native_resource`, `observe` |
+| Demand/cancel | `sophia_ns_demand`, `sophia_ns_demand_cancel` | `demand_native_frame`, `cancel_native_demand` |
+| Construct a scene | `sophia_ns_present` | `present_native_scene` |
+| Reconcile time and custody | `sophia_ns_service` | `service_at` |
+
+Both retain at most 16 resource identities and one upload. Rust copies each
+caller chunk and returns a Stored custody ticket; C borrows its buffer until
+upload progress finishes. Caller writes may split the declared layout chunks.
+Rust validates layout against Limits and requires Stored before another write
+or End. Failed payload is not replayed; cancel the resource. Rust's explicit-ID
+cancel also permits cleanup after a refused End; C callers can submit the same
+ResourceCancel through `sophia_ss_submit`, but its convenience wrapper still
+names the current upload. That convenience difference remains to reconcile.
+
+A rejected resize preserves the grant. Close removes local allocation use but
+waits for server invalidation before replacing an orphaned grant. Resources
+retain their own retirement/release lifetime. Submitted retirement is not release;
+a refused retirement restores Accepted state. The Rust scene helper uses current
+allocation/scale and accepted resources, fills context generations, checks byte
+bounds and consumes a permit only on successful local admission. The lower-level
+candidate API still registers metadata without resource/pacing policy.
+
+Permit time is advisory demand enqueue plus TTL, with a caller margin. Local
+expiry disarms use but keeps the demand outstanding until authoritative end;
+neither SDK can prove timely arrival from that bound. Tests cover candidate
+refusal before and after permit expiry. C's new regression failed on `c678319`
+before repair: expiry first caused an indefinite wait for the same end. The fix
+preserves that terminal observation and leaves newer demands untouched.
+
+The Rust file wire also leaked upload slots after definitively refused Begins;
+a six-refusal regression failed before repair. It now releases the pending
+claim and drops queued payload for vanished bindings without blocking later
+records. Full Rust tests, strict Clippy and C `make check` pass; 25 Rust native
+checks include paired allocation, resource, pacing and refusal cases. Export
+qualification, native capture and performance claims remain separate.
+
+Pointer action/ACK handling and the integrated native facade remain open, as do
+delayed native reservations, other non-content batches and configurable queues.
+These gaps still block full t333 parity and production adoption.

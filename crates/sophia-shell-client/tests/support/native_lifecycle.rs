@@ -1,4 +1,6 @@
 use super::*;
+#[path = "native_resources.rs"]
+mod resources;
 
 #[test]
 fn late_presented_after_close_does_not_restore_focus() {

@@ -56,6 +56,10 @@ impl NativeLauncherLifecycle {
         };
         self.grant(grant)?;
         match record {
+            ShellContentRecord::AllocationResult(v) => self.allocation_result(v)?,
+            ShellContentRecord::ResourceStatus(v) => self.resource_status(v),
+            ShellContentRecord::ResourceReleased(v) => self.free_resource(v.resource),
+            ShellContentRecord::FramePermit(v) => self.frame_permit(v)?,
             ShellContentRecord::OutputFacts(v) => {
                 if v.facts_generation == 0 || v.facts_generation < self.facts {
                     return Err(invalid());
@@ -85,6 +89,7 @@ impl NativeLauncherLifecycle {
                     self.shown = Some(pending);
                 }
                 self.pending = None;
+                self.pacing.consumed = None;
             }
             _ => {}
         }
@@ -205,6 +210,9 @@ impl NativeLauncherLifecycle {
                 self.opening = None;
                 self.focus = None;
                 self.shown = None;
+                if self.allocation.granted.is_some() && self.allocation.opening == v.opening {
+                    self.allocation.orphaned = true;
+                }
             }
             _ => unreachable!(),
         }

@@ -77,10 +77,20 @@ eligibility and the input ACK scheduling deadline. Call `service` after driving
 the connection to reconcile custody and disconnects. Publication notices disarm
 stale scenes before snapshot fetching completes.
 
-The caller still owns allocation/resource/permit lifetimes, pointer-action
-responses and scheduling before the reported deadline. This is not yet C's full
-native lifecycle helper. Never use local admission as proof of presentation or
-application startup.
+Use `allocate_native`/`release_native_allocation` for allocation ownership and
+`begin_native_resource`, `upload_native_chunk`, `end_native_resource`,
+`cancel_native_resource` and `retire_native_resource` for uploads and retirement.
+Uploads wait for Stored between caller writes; Accepted alone makes a resource
+placeable. Close invalidates local use of an allocation but does not release
+resources. The helper waits for the server's invalidation/release records.
+
+`demand_native_frame`, `cancel_native_demand` and `present_native_scene` track
+permits and build candidates from current allocations and accepted resources.
+Drive `service_at` with host monotonic milliseconds. Permit deadlines and the
+caller-supplied margin are advisory; local expiry cannot authorize another
+demand before the server ends the old one. Pointer-action responses and the
+integrated facade still await parity. Never use local admission as proof of
+presentation or application startup.
 
 The protocol crate also carries the descriptor, tabs, shortcut/reference and
 revision-4 launcher records, native file codecs and pure validation. This

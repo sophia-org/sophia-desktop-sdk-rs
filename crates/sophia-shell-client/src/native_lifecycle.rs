@@ -1,5 +1,5 @@
-//! Ordered opening, presentation, focus and keyboard-input state. Resource
-//! and pacing policy are separate: this layer never invents a grant or permit.
+//! Ordered native launcher lifecycle. Server records decide grants, resource
+//! acceptance and presentation; local deadlines are scheduling hints only.
 use crate::{
     Admission, ContentReservation, Custody, NativeLauncherObservation, ShellClientError,
     ShellConnection, Ticket,
@@ -8,6 +8,10 @@ use sophia_shell_protocol::shell_files::*;
 use sophia_shell_protocol::*;
 
 mod observe;
+mod resources;
+pub use resources::{NativeAllocationParams, NativeResourceState};
+mod pacing;
+pub use pacing::NativeScene;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NativeLifecycleState {
@@ -44,8 +48,9 @@ struct Candidate {
 /// Feed observations in wire order, exactly once. A retained input must be
 /// answered through `prepare_native_input` before another observation is fed.
 /// Re-read `input()` when local admission is busy; it never reapplies an edit.
-/// This layer tracks presentation/input only. Allocation, resource and pacing
-/// helpers, pointer actions and their ACKs remain the caller's responsibility.
+/// Allocation/resource and frame-demand helpers track their own custody. Use
+/// `present_native_scene` for those checks; the lower-level candidate method
+/// only registers presentation metadata. Pointer responses remain separate.
 pub struct NativeLauncherLifecycle {
     limits: ContentLimits,
     state: NativeLifecycleState,
@@ -65,6 +70,10 @@ pub struct NativeLauncherLifecycle {
     activation: Option<(TransactionId, NativeLauncherActivation, Ticket)>,
     acks: [Option<Ticket>; 16],
     lost_acks: u8,
+    allocation: resources::Allocation,
+    resources: [Option<resources::Resource>; 16],
+    upload: Option<resources::Upload>,
+    pacing: pacing::Pacing,
 }
 
 impl NativeLauncherLifecycle {
@@ -91,6 +100,10 @@ impl NativeLauncherLifecycle {
             activation: None,
             acks: [None; 16],
             lost_acks: 0,
+            allocation: resources::Allocation::default(),
+            resources: [None; 16],
+            upload: None,
+            pacing: pacing::Pacing::default(),
         })
     }
     pub fn state(&self) -> NativeLifecycleState {
@@ -131,6 +144,10 @@ impl NativeLauncherLifecycle {
         self.shown = None;
         self.focus = None;
         self.input = None;
+        self.allocation = resources::Allocation::default();
+        self.resources.fill(None);
+        self.upload = None;
+        self.pacing = pacing::Pacing::default();
     }
     fn grant(&self, grant: ContentGrant) -> Result<(), ShellClientError> {
         if grant != self.limits.grant {
@@ -146,7 +163,7 @@ impl NativeLauncherLifecycle {
 
     /// Apply one decoded observation. Identity/correlation errors fail closed;
     /// attempting to skip an input returns a local error without changing it.
-    /// Content resource/permit observations are not reduced by this layer.
+    /// The caller must preserve order across native and shared content records.
     pub fn observe(&mut self, value: &NativeLauncherObservation) -> Result<(), ShellClientError> {
         self.live()?;
         if self.input.is_some() {
@@ -189,6 +206,7 @@ impl NativeLauncherLifecycle {
             )
         {
             self.pending = None;
+            self.candidate_refused();
         }
         if let Some((_, _, ticket)) = self.activation
             && matches!(
@@ -198,6 +216,8 @@ impl NativeLauncherLifecycle {
         {
             self.activation = None;
         }
+        self.service_resources(connection);
+        self.service_pacing(connection);
         Ok(())
     }
 }

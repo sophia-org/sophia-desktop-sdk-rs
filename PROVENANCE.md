@@ -1,5 +1,29 @@
 # Provenance
 
+## t333 native resources and pacing
+
+The Rust lifecycle now owns allocation requests, orphaned grants, bounded
+resource identities, upload progress, retirement and frame demands/permits.
+The scene helper fills current identities and admits only accepted resources
+under a usable permit. Advisory expiry does not cancel server authority; a
+definitively refused candidate waits for authoritative permit end unless that
+end was already observed. Caller writes may split the declared image chunks;
+only Stored advances local upload progress, and uncertain bytes are not replayed.
+
+Two regressions exposed existing defects. In C `c678319`, expiry before a
+candidate submit refusal recreated a wait for the same expiry; its new control
+failed before the companion correction. In Rust's existing file wire, refused
+ResourceBegin claims leaked all four slots. The new six-refusal control failed
+before repair. Definitive refusal now releases its pending claim, and queued
+payload for a vanished binding becomes DroppedUnsent instead of stalling.
+
+The native suite now has 25 passing tests. Full workspace tests, strict Clippy
+and C's full suite pass. Allocation controls cover resize rejection, close,
+late grants and invalidation; resource controls cover partial writes, refusal,
+cancel, retirement and release; pacing controls cover local expiry, cancellation,
+candidate admission and both expiry/refusal orders. No SDK pin, native campaign
+or production export was changed. Pointer handling and the full facade remain.
+
 ## t333 native presentation and keyboard lifecycle
 
 `NativeLauncherLifecycle` tracks ordered openings, candidate outcomes, exact
