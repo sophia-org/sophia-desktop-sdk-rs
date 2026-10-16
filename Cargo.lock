@@ -136,6 +136,7 @@ dependencies = [
  "rustix",
  "sophia-9p-client",
  "sophia-9p-records",
+ "sophia-launch-client",
  "sophia-output-protocol",
 ]
 

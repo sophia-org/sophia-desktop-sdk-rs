@@ -1,6 +1,6 @@
 # Output API parity
 
-Revision 8, 2026-10-16. Contract: API-1 output files in `spec/`.
+Revision 9, 2026-10-16. Contract: API-1 output files in `spec/`.
 C reference: `a88efe7`, `src/sophia_output_session.h`.
 Rust has codecs, provisional fixed-file startup and an immutable submission
 lane, ordered journal and topology fetcher joined by a developing session.
@@ -108,3 +108,25 @@ Build the Rust peer with `cargo-slot sophia-desktop-sdk-rs cargo build
 Sophia’s pinned C SDK; C output implementation remains unchanged in this series.
 Verified production pins are unchanged. Protected launch and release-wide
 qualification remain open.
+
+Both independent `output_authenticated_peer` programs pass Sophia’s protected
+output fixture: real process protection and Factotum admission, exact admitted
+root handoff, topology fetch/ACK, then idle grant revocation with confirmed
+negotiation custody retained. The namespace admission count returns to zero;
+the existing raw reauthentication/revocation control also passes. The SDK peers
+do not reauthenticate or revoke an in-flight proposal. C’s full suite and Rust
+all-target output Clippy pass. Build C with `make build/output_authenticated_peer`
+and Rust with `cargo-slot sophia-desktop-sdk-rs cargo build
+-p sophia-output-client --example output_authenticated_peer`. Run each binary:
+
+```sh
+SOPHIA_OUTPUT_AUTH_PEER=/absolute/path/to/output_authenticated_peer \
+  cargo-slot sophia cargo test -p sophia-session --features native-session \
+  --test launch_authentication external_sdk_output_authenticates_and_observes_revocation \
+  -- --include-ignored --nocapture
+```
+
+`native-session` is required: without it, zero tests run and provide no evidence.
+No production pin or installed desktop changed. Remaining release-wide parity
+work includes the experimental lock client, administration and broker/portal
+audit, foreign-language smoke and publication/adoption.
