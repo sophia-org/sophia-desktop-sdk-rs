@@ -590,3 +590,7 @@ Paired scripted socket exchanges pass; production qualification remains.
 Admin map 9 adds nonblocking caller-connected socket facades and shared
 ownership/recovery guidance. Startup deadlines and I/O budgets span phase
 transitions. Production and release qualification remain open.
+
+Admin map 10 adds paired production-export completion, stale-catalog refresh
+and admission revocation after owner claim. Service loss and release-wide
+qualification remain open.

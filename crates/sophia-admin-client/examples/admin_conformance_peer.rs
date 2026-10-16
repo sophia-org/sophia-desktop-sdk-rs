@@ -1,0 +1,112 @@
+//! Generic production-export peer. The parent owns command tickets and admission.
+use sophia_9p_client::pipeline::{IoInterest, PipelineLimits};
+use sophia_admin_client::{
+    command::Custody,
+    connecting::Connecting,
+    protocol::{Command, Outcome, Owner},
+    session::Session,
+};
+use std::{
+    os::{fd::BorrowedFd, unix::net::UnixStream},
+    time::{Duration, Instant},
+};
+struct Clock(Instant);
+impl Clock {
+    fn now(&self) -> u64 {
+        let now = self.0.elapsed().as_millis() as u64;
+        assert!(now < 10000);
+        now
+    }
+    fn wait(&self, fd: BorrowedFd<'_>, interest: IoInterest, wake: Option<u64>) {
+        if interest.immediate {
+            return;
+        }
+        let mut flags = rustix::event::PollFlags::empty();
+        if interest.readable {
+            flags |= rustix::event::PollFlags::IN;
+        }
+        if interest.writable {
+            flags |= rustix::event::PollFlags::OUT;
+        }
+        let timeout = rustix::event::Timespec::try_from(Duration::from_millis(
+            wake.unwrap_or(10000).min(10000).saturating_sub(self.now()),
+        ))
+        .unwrap();
+        let mut fds = [rustix::event::PollFd::new(&fd, flags)];
+        match rustix::event::poll(&mut fds, Some(&timeout)) {
+            Ok(_) | Err(rustix::io::Errno::INTR) => (),
+            Err(e) => panic!("{e}"),
+        }
+    }
+    fn turn(&self, s: &mut Session) {
+        self.wait(s.fd().unwrap(), s.io_interest().unwrap(), s.next_wake());
+        let _ = s.dispatch(self.now(), 65536);
+    }
+    fn outcome(&self, s: &mut Session, id: u64, expected: Outcome) {
+        while s.latest_custody() != Some((id, Custody::Settled)) {
+            assert!(s.error().is_none(), "{:?}", s.error());
+            self.turn(s);
+        }
+        assert_eq!(s.outcome().unwrap().0, expected);
+        assert_eq!(s.next_wake(), None);
+    }
+}
+fn main() {
+    let args: Vec<_> = std::env::args_os().collect();
+    let path = &args[1];
+    let report = &args[2];
+    let revoke = args[3] == "revoke";
+    let clock = Clock(Instant::now());
+    let mut connecting = Connecting::new(
+        UnixStream::connect(path).unwrap(),
+        PipelineLimits::default(),
+        0,
+        2000,
+    )
+    .unwrap();
+    while !connecting.ready() {
+        clock.wait(
+            connecting.fd().unwrap(),
+            connecting.io_interest().unwrap(),
+            connecting.next_wake(),
+        );
+        connecting.dispatch(clock.now(), 65536).unwrap();
+    }
+    let mut s = connecting.take_session().unwrap();
+    assert_eq!(s.catalog_generation(), Some(7));
+    let command = Command {
+        owner: Owner::Policy,
+        name: "focus next",
+    };
+    assert!(s.commands().any(|c| c == command));
+    assert_eq!(s.invoke(command, clock.now()).unwrap(), 1);
+    if revoke {
+        while s.error().is_none() {
+            clock.turn(&mut s);
+        }
+        assert_eq!(s.latest_custody(), Some((1, Custody::Unknown)));
+        assert!(s.fd().is_none());
+        assert!(s.invoke(command, clock.now()).is_err());
+    } else {
+        clock.outcome(&mut s, 1, Outcome::Committed);
+        std::fs::write(report, b"first\n").unwrap();
+        while std::fs::read_to_string(report).unwrap() != "continue\n" {
+            clock.now();
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(s.invoke(command, clock.now()).unwrap(), 2);
+        clock.outcome(&mut s, 2, Outcome::Stale);
+        assert_eq!(s.catalog_generation(), None);
+        s.refresh_catalog(clock.now()).unwrap();
+        while s.catalog_generation().is_none() {
+            assert!(s.error().is_none());
+            clock.turn(&mut s);
+        }
+        assert_eq!(s.catalog_generation(), Some(8));
+        assert_eq!(s.invoke(command, clock.now()).unwrap(), 3);
+        clock.outcome(&mut s, 3, Outcome::Committed);
+        s.close();
+        assert_eq!(s.latest_custody(), Some((3, Custody::Settled)));
+    }
+    std::fs::write(report, b"ok\n").unwrap();
+}

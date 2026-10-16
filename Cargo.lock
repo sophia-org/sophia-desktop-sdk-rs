@@ -107,6 +107,7 @@ version = "0.3.0"
 name = "sophia-admin-client"
 version = "0.3.0"
 dependencies = [
+ "rustix",
  "sophia-9p-client",
  "sophia-9p-records",
  "sophia-admin-protocol",

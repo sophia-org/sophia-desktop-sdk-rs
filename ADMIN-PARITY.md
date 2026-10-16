@@ -1,6 +1,6 @@
 # Administrative SDK parity
 
-Revision 9, 2026-10-16. Both SDKs now have developing administrative sessions
+Revision 10, 2026-10-16. Both SDKs now have developing administrative sessions
 and caller-connected socket facades. Qualification remains t333 work.
 
 The pinned file contract is copied unchanged from Sophia
@@ -160,3 +160,18 @@ bytes; unsupported versions terminate without attach or fallback. Twelve Rust
 client tests and C's session/connecting tests pass, with strict Rust Clippy.
 [Ownership and recovery](ADMIN-CLIENT.md) documents both APIs and their limits.
 Further integrated failure cases and paired production qualification remain.
+
+Both independently built SDK peers now pass Sophia's production administrative
+export gate `admin_external_sdk`. Each completes a policy command through a
+claimed ControlTicket, receives Stale after the parent changes catalog generation,
+refreshes and completes a new command on the same connection. Only requests 1
+and 3 reach the owner; the stale request is settled by the export.
+
+A second run revokes the child's admission after its command ticket is claimed.
+Each SDK terminates with uncertain custody and refuses another invocation.
+The claimed ticket remains dispatched; loss of admission does not undo its
+effects. The fixture supplies policy completion and does not execute a real WM
+action. This proves the file-service/SDK boundary, not service-process loss,
+installed-session behavior or release-wide qualification. Strict Rust Clippy
+and the independent C peer build pass. Service-loss/recovery and remaining
+integrated failure coverage still need qualification.
