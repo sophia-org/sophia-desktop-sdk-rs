@@ -1,5 +1,22 @@
 # Provenance
 
+## t333 delayed-content capacity reservations
+
+`reserve_capacity` holds encoded-unit and byte credits without borrowing the
+connection. Records can be chosen later while dispatch and unreserved admissions
+continue. Commit validates token identity, size and records, retains credits on
+failure, and issues tickets only on success. Explicit cancellation or terminal
+classification releases credits. Tokens use private shared identities, avoiding
+cross-connection and stale-token collisions without global counters.
+
+Rust workspace tests and strict all-target Clippy pass. Controls cover credit
+isolation, control headroom, service while reserved, sizing/validation failures,
+stale/wrong-connection tokens and closure. C's paired identity test exposed a
+serial collision across two live sessions and passes with its owner/epoch fix;
+the full C check suite passes. C's changed token layout requires a consumer
+rebuild and is marked unreleased 0.10.0-dev. Neither SDK candidate is yet adopted
+by Sophia's production pins; native and export qualification remain separate.
+
 ## t333 prepared content reservations
 
 The Rust shell client exposes reservations for one content operation or a whole

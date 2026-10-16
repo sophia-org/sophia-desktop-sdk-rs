@@ -14,6 +14,8 @@ mod files;
 pub use descriptor::DescriptorObservation;
 mod lifecycle;
 mod outbox;
+pub use outbox::QueueReservation;
+mod reservation;
 pub use lifecycle::*;
 mod wire;
 

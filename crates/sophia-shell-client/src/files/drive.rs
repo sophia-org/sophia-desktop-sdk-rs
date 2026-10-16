@@ -69,6 +69,7 @@ impl FileWire {
             self.observe_custody_after_close();
         }
         if result.is_err() || self.peer_closed {
+            output.release_reservation();
             self.classify_terminal(output);
         }
         self.settle(output, ledger);

@@ -1,10 +1,11 @@
 # C and Rust SDK API parity
 
-Matrix revision 3, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 4, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
-`sophia-desktop-sdk-c` `0e4b2fd` (library bytes unchanged from `ba09265d`).
+`sophia-desktop-sdk-c` baseline `cfa6561`, plus this change series' reservation
+identity fix (unreleased 0.10.0-dev; see below).
 
 | Operation | Native C | Native Rust | Contract or remaining difference |
 | --- | --- | --- | --- |
@@ -46,10 +47,11 @@ differences, not evidence that every shell operation already has a counterpart.
 | Operation | Native C | Native Rust | Contract or remaining difference |
 | --- | --- | --- | --- |
 | Atomic admission | `sophia_ss_submit` | `enqueue_content_tracked`, `enqueue_content_group_tracked` | All encoded units enter the bounded queue or none. Local admission is not server custody. Rust groups currently represent a whole candidate, not an arbitrary list of records. |
-| Prepare before a local effect | `sophia_ss_reserve` | `reserve_content`, `reserve_content_group` | C reserves counts/bytes before records are known. Rust validates and owns the records up front, then exclusively borrows the connection until commit/cancel. |
-| Commit | `sophia_ss_commit` | `ContentReservation::commit` | Rust's prepared commit needs no allocation, I/O or capacity check and returns Queued tickets. C validates records at commit and retains its reservation on invalid input. Neither promises remote acceptance. |
-| Cancel | `sophia_ss_cancel` | `ContentReservation::cancel` or Drop | No admission or tickets. Rust discards staged upload-slot claims too. Internal wire submission IDs may be skipped. |
-| Continue servicing while reserved | C can dispatch and admit within unreserved capacity | Exclusive borrow prevents driving or another admission | A remaining capability gap, along with reserving space before choosing records. Do not hold a Rust reservation across an event-loop turn. |
+| Reserve before choosing records | `sophia_ss_reserve` | `reserve_capacity(slots, bytes)` | One live token; dispatch and admissions using unreserved capacity can continue. Rust reserves from its bulk allowance, preserving control credits. |
+| Commit delayed content | `sophia_ss_commit` | `commit_reserved_content`, `commit_reserved_content_group` | Both retain credits on invalid input/size and issue tickets only on successful admission. Rust still encodes/allocates at commit; its group is a whole candidate, not an arbitrary batch. |
+| Prepare known records | Reserve then commit | `reserve_content`, `reserve_content_group` | Rust's additional prepared handle exclusively borrows the connection; its commit needs no allocation, I/O or capacity check. |
+| Cancel | `sophia_ss_cancel` | `cancel_reservation(&token)`; prepared handle `cancel`/Drop | Delayed-content tokens require explicit cancellation in both SDKs. Rust's prepared handle alone cancels on Drop. No admission or tickets. |
+| Token identity | Session address, connection epoch and serial (0.10.0-dev) | Private shared identity checked against the connection | Wrong-connection and stale tokens cannot consume the live reservation. Do not move/reinitialize C session storage while a reservation is live. |
 | Custody query | `sophia_ss_outcome` | `custody(Ticket)` | Local/admitted, in-flight, Submitted, refused errno, dropped-unsent and unknown map to the corresponding Rust values. Submitted is not semantic acceptance. |
 | Old/unknown ticket | UNAVAILABLE for evicted, ARGUMENT for unissued | `None` for either | Rust does not currently distinguish those cases. Both retain the latest 256 tickets. |
 
@@ -64,8 +66,21 @@ Rust preparation uses the existing encoder and local checks. Runtime grant,
 upload and semantic decisions still belong to the session. For lifecycle-aware
 candidate registration, use the existing `enqueue_candidate_tracked`; a plain
 content reservation does not update `ContentLifecycle`. Native lifecycle
-helpers, arbitrary multi-record groups and delayed-content reservations remain
-open under t333.
+helpers and arbitrary multi-record groups remain open under t333.
+
+The delayed-content Rust token now survives connection service. Tests cover
+reserved byte/slot isolation, control credits, unused-credit release, invalid
+records, wrong-connection/stale tokens, cancellation and terminal release.
+Allocation failure can still refuse a delayed-content commit while preserving
+credits; use a prepared handle when the local side effect needs an infallible
+commit. Rust takes nonzero bounded byte/slot counts; its fixed bulk/control
+partition differs from C's configurable queue limits.
+
+C regression `reservation_is_bound_to_its_session` failed on `cfa6561`: two
+live sessions with the same reservation serial accepted one another's token.
+The companion fix checks owner address and epoch as well as serial. This expands
+the public reservation struct; 0.10.0-dev is unreleased and C consumers must
+recompile before adoption. It changes no wire record or server authority.
 
 Remaining inventory: every shell revision, operation, event, terminal outcome
 and native lifecycle helper; generic transport, launch and

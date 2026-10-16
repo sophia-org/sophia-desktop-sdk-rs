@@ -1,6 +1,100 @@
 use super::*;
 
 #[test]
+fn capacity_reservation_survives_service_and_excludes_other_admissions() {
+    let (mut connection, mut peer) = connect(bar(0));
+    let token = connection.reserve_capacity(2, 4096).unwrap();
+    let pending: Vec<_> = (1..=30)
+        .map(|id| enqueue_demand(&mut connection, id))
+        .collect();
+    assert!(matches!(
+        connection.reserve_capacity(1, 100),
+        Err(ShellClientError::QueueSaturated)
+    ));
+    assert_eq!(
+        connection.enqueue_content_tracked(tx(31), &demand(31)),
+        Err(ShellClientError::QueueSaturated)
+    );
+    commit(&mut connection, &mut peer, pending[0]);
+    let extra = enqueue_demand(&mut connection, 31);
+    let admission = connection
+        .commit_reserved_content(&token, tx(32), &demand(32))
+        .unwrap();
+    assert_eq!(admission.first, Ticket(32));
+    assert_eq!(connection.custody(admission.first), Some(Custody::Queued));
+    assert!(matches!(
+        connection.cancel_reservation(&token),
+        Err(ShellClientError::InvalidArgument(_))
+    ));
+    for ticket in pending.into_iter().skip(1).chain([extra, admission.first]) {
+        commit(&mut connection, &mut peer, ticket);
+    }
+}
+
+#[test]
+fn capacity_token_is_connection_bound_and_invalid_commits_retain_it() {
+    let (mut connection, mut peer) = connect(bar(0));
+    let (mut other, _) = connect(bar(0));
+    let token = connection.reserve_capacity(1, 4096).unwrap();
+    let other_token = other.reserve_capacity(1, 4096).unwrap();
+    assert!(matches!(
+        other.cancel_reservation(&token),
+        Err(ShellClientError::InvalidArgument(_))
+    ));
+    assert!(matches!(
+        other.commit_reserved_content(&token, tx(1), &demand(1)),
+        Err(ShellClientError::InvalidArgument(_))
+    ));
+    other.cancel_reservation(&other_token).unwrap();
+    assert!(
+        connection
+            .commit_reserved_content_group(&token, tx(1), &[])
+            .is_err()
+    );
+    assert_eq!(connection.custody(Ticket(1)), None);
+    let admission = connection
+        .commit_reserved_content_group(&token, tx(2), &withdrawal())
+        .unwrap();
+    assert_eq!(admission.first, Ticket(1));
+    commit(&mut connection, &mut peer, admission.first);
+    let replacement = connection.reserve_capacity(1, 4096).unwrap();
+    assert!(matches!(
+        connection.commit_reserved_content(&token, tx(3), &demand(3)),
+        Err(ShellClientError::InvalidArgument(_))
+    ));
+    connection.cancel_reservation(&replacement).unwrap();
+}
+
+#[test]
+fn capacity_reservation_size_refusal_cancel_and_terminal_release() {
+    let (mut connection, mut peer) = connect(bar(0));
+    assert!(matches!(
+        connection.reserve_capacity(0, 1),
+        Err(ShellClientError::InvalidArgument(_))
+    ));
+    let small = connection.reserve_capacity(1, 1).unwrap();
+    assert!(matches!(
+        connection.commit_reserved_content(&small, tx(1), &demand(1)),
+        Err(ShellClientError::InvalidArgument(_))
+    ));
+    assert_eq!(connection.custody(Ticket(1)), None);
+    connection.cancel_reservation(&small).unwrap();
+    let token = connection.reserve_capacity(32, 4096).unwrap();
+    peer.close();
+    let _ = connection.poll_io();
+    assert!(
+        connection
+            .commit_reserved_content(&token, tx(2), &demand(2))
+            .is_err()
+    );
+    assert_eq!(connection.custody(Ticket(1)), None);
+    assert!(matches!(
+        connection.cancel_reservation(&token),
+        Err(ShellClientError::InvalidArgument(_))
+    ));
+}
+
+#[test]
 fn content_reservation_cancel_and_commit_issue_only_one_ticket_without_io() {
     let (mut connection, mut peer) = connect(bar(0));
     for _ in 0..3 {

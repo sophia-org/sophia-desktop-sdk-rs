@@ -39,8 +39,14 @@ Before a local UI change that needs a content record, `reserve_content` (or
 and its queue capacity. Perform the local change, then call the returned
 handle's `commit`; dropping it cancels. Commit performs no I/O or allocation and
 returns Queued tickets. The handle exclusively borrows the connection, so keep
-it within one synchronous operation. C's more flexible reservations can remain
-live while the session is driven; that Rust capability is still missing.
+it within one synchronous operation.
+
+For records chosen later, `reserve_capacity(slots, bytes)` returns a connection-
+bound token that can stay live during dispatch and other admissions. Use
+`commit_reserved_content` or `commit_reserved_content_group`, or explicitly
+`cancel_reservation`; dropping this token alone does not release credits.
+Invalid records or sizing leave it live. This form guarantees queue credits,
+but encoding/allocation can still fail at commit, unlike the prepared handle.
 
 The protocol crate also carries the descriptor, tabs, shortcut/reference and
 revision-4 launcher records, native file codecs and pure validation. This

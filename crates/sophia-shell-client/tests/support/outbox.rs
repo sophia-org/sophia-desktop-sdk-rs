@@ -2,6 +2,34 @@ use super::*;
 use crate::custody::{Admission, Ledger, Ticket};
 
 #[test]
+fn reserved_bytes_and_slots_preserve_bulk_and_control_limits() {
+    let mut outbox = ClientOutbox::default();
+    let mut ledger = Ledger::default();
+    let token = outbox
+        .reserve_capacity(1, MAX_QUEUED_BYTES - CONTROL_BYTES)
+        .unwrap();
+    assert!(matches!(
+        outbox.prepare(vec![vec![1]], false, &mut ledger),
+        Err(ShellClientError::QueueSaturated)
+    ));
+    outbox
+        .enqueue(vec![vec![2; CONTROL_BYTES]], true, &mut ledger)
+        .unwrap();
+    assert!(matches!(
+        outbox.prepare(vec![vec![3]], true, &mut ledger),
+        Err(ShellClientError::QueueSaturated)
+    ));
+    let prepared = outbox
+        .prepare_reserved(&token, vec![vec![4]], false, &mut ledger)
+        .unwrap();
+    let admission = outbox.commit(prepared, &mut ledger);
+    assert_eq!(admission.first, Ticket(2));
+    // The unused byte allowance was released on commit.
+    outbox.enqueue(vec![vec![5]], false, &mut ledger).unwrap();
+    assert_eq!(outbox.bytes, CONTROL_BYTES + 2);
+}
+
+#[test]
 fn preparation_acquires_capacity_without_queueing_or_spending_tickets() {
     let mut outbox = ClientOutbox::default();
     let mut ledger = Ledger::default();

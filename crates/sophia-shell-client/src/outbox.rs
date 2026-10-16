@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 use crate::custody::{Admission, Ledger};
 use crate::{MAX_QUEUED_BYTES, MAX_QUEUED_FRAMES, ShellClientError};
@@ -14,6 +15,22 @@ pub(crate) struct ClientOutbox {
     bytes: usize,
     bulk_records: usize,
     bulk_bytes: usize,
+    reserved: Option<ReservedCapacity>,
+}
+
+/// Connection-bound queue credits for records chosen later. This token does
+/// not borrow the connection, so dispatch and other admissions may continue.
+/// Cancel explicitly if unused; dropping the token alone does not release
+/// credits. A terminal connection releases them. Tokens cannot be reused or
+/// transferred to another connection.
+#[derive(Debug)]
+#[must_use = "commit or explicitly cancel the reserved capacity"]
+pub struct QueueReservation(Arc<()>);
+
+struct ReservedCapacity {
+    identity: Arc<()>,
+    slots: usize,
+    bytes: usize,
 }
 struct Frame {
     bytes: Option<Box<[u8]>>,
@@ -28,6 +45,111 @@ pub(crate) struct PreparedQueue {
     control: bool,
 }
 impl ClientOutbox {
+    pub(crate) fn reserve_capacity(
+        &mut self,
+        slots: usize,
+        bytes: usize,
+    ) -> Result<QueueReservation, ShellClientError> {
+        if slots == 0
+            || bytes == 0
+            || slots > MAX_QUEUED_FRAMES - CONTROL_RECORDS
+            || bytes > MAX_QUEUED_BYTES - CONTROL_BYTES
+        {
+            return Err(ShellClientError::InvalidArgument("reservation size"));
+        }
+        if self.reserved.is_some() || !self.fits(slots, bytes, false) {
+            return Err(ShellClientError::QueueSaturated);
+        }
+        self.frames
+            .try_reserve(slots)
+            .map_err(|_| ShellClientError::QueueSaturated)?;
+        let identity = Arc::new(());
+        let token = QueueReservation(identity.clone());
+        self.reserved = Some(ReservedCapacity {
+            identity,
+            slots,
+            bytes,
+        });
+        Ok(token)
+    }
+
+    pub(crate) fn validate_reservation(
+        &self,
+        token: &QueueReservation,
+    ) -> Result<(), ShellClientError> {
+        match &self.reserved {
+            Some(reserved) if Arc::ptr_eq(&reserved.identity, &token.0) => Ok(()),
+            _ => Err(ShellClientError::InvalidArgument("reservation identity")),
+        }
+    }
+
+    pub(crate) fn cancel_reservation(
+        &mut self,
+        token: &QueueReservation,
+    ) -> Result<(), ShellClientError> {
+        self.validate_reservation(token)?;
+        self.reserved = None;
+        Ok(())
+    }
+
+    pub(crate) fn release_reservation(&mut self) {
+        self.reserved = None;
+    }
+
+    fn fits(&self, slots: usize, bytes: usize, control: bool) -> bool {
+        let (reserved_slots, reserved_bytes) = self
+            .reserved
+            .as_ref()
+            .map_or((0, 0), |r| (r.slots, r.bytes));
+        self.frames
+            .len()
+            .saturating_add(reserved_slots)
+            .saturating_add(slots)
+            <= MAX_QUEUED_FRAMES
+            && self
+                .bytes
+                .saturating_add(reserved_bytes)
+                .saturating_add(bytes)
+                <= MAX_QUEUED_BYTES
+            && (control
+                || (self
+                    .bulk_records
+                    .saturating_add(reserved_slots)
+                    .saturating_add(slots)
+                    <= MAX_QUEUED_FRAMES - CONTROL_RECORDS
+                    && self
+                        .bulk_bytes
+                        .saturating_add(reserved_bytes)
+                        .saturating_add(bytes)
+                        <= MAX_QUEUED_BYTES - CONTROL_BYTES))
+    }
+
+    pub(crate) fn prepare_reserved(
+        &mut self,
+        token: &QueueReservation,
+        frames: Vec<Vec<u8>>,
+        control: bool,
+        ledger: &mut Ledger,
+    ) -> Result<PreparedQueue, ShellClientError> {
+        self.validate_reservation(token)?;
+        let reserved = self.reserved.as_ref().expect("validated reservation");
+        let bytes = frames
+            .iter()
+            .try_fold(0usize, |sum, frame| sum.checked_add(frame.len()));
+        if frames.len() > reserved.slots || bytes.is_none_or(|n| n > reserved.bytes) {
+            return Err(ShellClientError::InvalidArgument(
+                "records exceed reservation",
+            ));
+        }
+        let reserved = self.reserved.take();
+        match self.prepare(frames, control, ledger) {
+            Ok(prepared) => Ok(prepared),
+            Err(error) => {
+                self.reserved = reserved;
+                Err(error)
+            }
+        }
+    }
     pub(crate) fn enqueue(
         &mut self,
         frames: Vec<Vec<u8>>,
@@ -62,13 +184,7 @@ impl ClientOutbox {
         ledger: &mut Ledger,
     ) -> Result<PreparedQueue, ShellClientError> {
         let bytes: usize = frames.iter().map(Vec::len).sum();
-        if self.frames.len().saturating_add(frames.len()) > MAX_QUEUED_FRAMES
-            || self.bytes.saturating_add(bytes) > MAX_QUEUED_BYTES
-            || (!control
-                && (self.bulk_records.saturating_add(frames.len())
-                    > MAX_QUEUED_FRAMES - CONTROL_RECORDS
-                    || self.bulk_bytes.saturating_add(bytes) > MAX_QUEUED_BYTES - CONTROL_BYTES))
-        {
+        if !self.fits(frames.len(), bytes, control) {
             return Err(ShellClientError::QueueSaturated);
         }
         // Prepare all allocations before transferring either half. Extending
@@ -86,7 +202,7 @@ impl ClientOutbox {
             .collect();
         let records = prepared.len();
         self.frames
-            .try_reserve(records)
+            .try_reserve(records + self.reserved.as_ref().map_or(0, |r| r.slots))
             .map_err(|_| ShellClientError::QueueSaturated)?;
         ledger.reserve(records)?;
         Ok(PreparedQueue {
