@@ -1,6 +1,6 @@
 # Portal SDK parity
 
-Revision 1, 2026-10-16. Recipient codecs are developing; there is no complete
+Revision 2, 2026-10-16. Recipient codecs are developing; there is no complete
 portal client or parity claim.
 
 The unchanged recipient contract in `spec/portal-client-files.md` comes from
@@ -16,8 +16,18 @@ C leaves output unchanged on failure. Independent tests cover truncated and
 trailing records, the exact limit, oversized and overflowing dimensions,
 invalid fields and a one-pixel image. Both pass, as does strict Rust Clippy.
 
-Remaining recipient work includes discovery/status, capture request/status
-records, authenticated startup, retained-object frame and transfer reads,
+Both SDKs now encode the exact 24-byte capture request and decode the complete
+32-byte capture-status snapshot without allocation. All eight states remain
+distinct. Idle requires zero identities; other states require nonzero serial
+and output. Rust returns an inline byte array; C writes into caller storage,
+leaving output unchanged on error and preserving bytes beyond the record.
+Independent literal and malformed-boundary tests pass, including every truncated
+status prefix, trailing bytes, invalid version/state and identity combinations.
+The two Rust portal tests, both C portal tests and strict Rust Clippy pass.
+These codecs neither enforce serial ordering nor confer frame authority.
+
+Remaining recipient work includes discovery/status records, authenticated
+startup, retained-object frame and transfer reads,
 watch/cancellation, custody, revocation and external-loop APIs. Reads should
 use caller-controlled storage and bounded chunks; do not create another full
 image copy. Decoded metadata alone never authorizes pixels or proves presentation.
