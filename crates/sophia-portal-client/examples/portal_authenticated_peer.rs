@@ -53,9 +53,10 @@ fn main() {
             .dispatch(start.elapsed().as_millis() as u64, 65536)
             .unwrap();
     }
-    let opened = opening.into_opened().unwrap();
+    let mut opened = opening.into_opened().unwrap();
     let mode = std::env::var("SOPHIA_TEST_PORTAL_BOUNDARY").unwrap();
-    let frame_mode = mode.starts_with("sdk-frame");
+    let request_mode = mode == "sdk-request";
+    let frame_mode = mode.starts_with("sdk-frame") || request_mode;
     let revoke = mode == "sdk-frame-revoke";
     assert_eq!(
         opened.info.request,
@@ -67,6 +68,51 @@ fn main() {
     );
     assert!(opened.info.epoch > 0 && opened.pipeline.fid_count() == 1);
     assert!(opened.pipeline.is_quiescent());
+    if request_mode {
+        let now = start.elapsed().as_millis() as u64;
+        let mut request = sophia_portal_client::capture_request::Request::new(
+            opened,
+            sophia_portal_client::protocol::CaptureRequest {
+                serial: 1,
+                output: 7,
+            },
+            0,
+            now,
+            now + 3000,
+        )
+        .unwrap();
+        while request.outcome().is_none() {
+            assert!(Instant::now() < deadline);
+            let interest = request.io_interest().unwrap();
+            let fd = request.fd().unwrap();
+            let mut flags = rustix::event::PollFlags::IN;
+            if interest.writable {
+                flags |= rustix::event::PollFlags::OUT;
+            }
+            let mut fds = [rustix::event::PollFd::new(&fd, flags)];
+            let wait = Duration::from_millis(if interest.immediate {
+                0
+            } else {
+                request
+                    .next_wake()
+                    .unwrap()
+                    .saturating_sub(start.elapsed().as_millis() as u64)
+            });
+            rustix::event::poll(
+                &mut fds,
+                Some(&rustix::event::Timespec::try_from(wait).unwrap()),
+            )
+            .unwrap();
+            request
+                .dispatch(start.elapsed().as_millis() as u64, 65536)
+                .unwrap();
+        }
+        let (role, outcome, serial) = request.finish().unwrap();
+        assert_eq!(outcome, sophia_portal_client::protocol::CaptureState::Ready);
+        assert_eq!(serial, 1);
+        assert_eq!(role.pipeline.fid_count(), 1);
+        opened = role;
+    }
     if frame_mode {
         let now = start.elapsed().as_millis() as u64;
         let mut frame = sophia_portal_client::frame::Frame::new(

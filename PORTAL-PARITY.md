@@ -1,6 +1,6 @@
 # Portal SDK parity
 
-Revision 11, 2026-10-16. Recipient components are developing; there is no complete
+Revision 12, 2026-10-16. Recipient components are developing; there is no complete
 portal client or parity claim.
 
 The unchanged recipient contract in `spec/portal-client-files.md` comes from
@@ -161,3 +161,34 @@ and strict Clippy pass; C's capture-client test passes. These are component
 tests: serial allocation, write limits, wire driving and production request
 qualification remain unfinished. Existing authenticated frame/revocation gates
 do not qualify this new request path.
+
+The request driver now composes custody with the authenticated role transport:
+Rust `capture_request::Request` and C `sophia_pcr_*`. It checks the advertised
+capability and caller-supplied serial high-water mark, opens capture write-only,
+and admits one complete offset-zero write within msize/iounit limits. It closes
+that fid before opening fresh status snapshots. Results require EOF and clunk;
+pending status uses the caller's timer, without sleeping inside dispatch.
+Failure closes Rust's owned pipeline; C callers must close their borrowed fd.
+Neither driver retries or reconnects.
+
+Successful handoff preserves the root and returns the serial for the next
+explicit request. The caller must maintain the recipient owner's high-water
+mark across reconnects and reserve each serial before use. Rust returns its
+owned Opened value; C exclusively borrows an immovable opening and restores it
+on finish. C's driver and metadata scratch allocate nothing. Rust uses inline
+metadata storage but its transport still allocates replies.
+
+Independent socket tests cover exact bytes, one-byte dispatch, fragmented
+status, repeated explicit requests, refusal, short writes, disconnect, wrong
+status identity, terminal-status clunk refusal, small iounit, directory replies,
+unsupported capability, old serials, expiry and cancellation. The fifteen Rust
+client tests (including the added request cases), C request test and strict
+Clippy pass.
+
+Both peers pass Sophia's production request-to-frame gate: real namespace
+authentication, SDK request submission, coordinator settlement, frame metadata
+and every pixel verified, then root-only ownership. All four external portal
+gates pass independently in C and Rust. The fixture supplies policy and pixels;
+this is neither native capture acceptance nor measured performance evidence.
+Production request refusal, cancellation/revocation and reconnect audits remain,
+alongside transfer/watch, trusted requester and release work.
