@@ -1,6 +1,6 @@
 # Portal SDK parity
 
-Revision 10, 2026-10-16. Recipient components are developing; there is no complete
+Revision 11, 2026-10-16. Recipient components are developing; there is no complete
 portal client or parity claim.
 
 The unchanged recipient contract in `spec/portal-client-files.md` comes from
@@ -139,3 +139,25 @@ Bytes already buffered before revocation may still arrive; this gate does not
 claim they can be recalled. All three external portal gates, the existing
 portal-dispatch regressions and strict Rust Clippy pass. Capture-request custody
 and the remaining recipient operations still need implementation.
+
+Capture-custody components now distinguish queued, issued, accepted, settled,
+refused, dropped-unsent and unknown requests. They keep the 24-byte write inline
+and allocate nothing. Pipeline admission marks issued; only an exact Rwrite
+marks accepted. A complete Rlerror records refusal; short or lost replies forbid
+replay. Closing locally cannot cancel work already admitted by the server.
+
+Only fresh EOF/clunk-verified capture-status snapshots may settle a request.
+Serial and output must match. Queued/capturing remain pending, while ready,
+denied, unavailable, pressure and cancelled remain distinct terminal outcomes.
+Ready grants no frame authority. A caller-monotonic deadline of at most ten
+seconds covers the whole observation, without extension from partial progress.
+Pending status schedules another snapshot no sooner than the next millisecond;
+settled or failed requests schedule none.
+
+Rust `capture::Pending` and C `sophia_pc_*` pass independent tests of all
+outcomes, refusal, short replies, loss/cancellation, mismatched status, malformed
+records, clock regression and fixed deadlines. All twelve Rust client tests
+and strict Clippy pass; C's capture-client test passes. These are component
+tests: serial allocation, write limits, wire driving and production request
+qualification remain unfinished. Existing authenticated frame/revocation gates
+do not qualify this new request path.
