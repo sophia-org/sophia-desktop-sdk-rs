@@ -84,6 +84,18 @@ impl Fetch {
             None
         }
     }
+    pub fn is_ready(&self) -> bool {
+        self.stage == Stage::Ready
+    }
+    /// Transfer the verified object without copying its head, mode and group
+    /// allocations. Readiness remains true after ownership passes to Session.
+    pub fn take_result(&mut self) -> Option<OutputV1Snapshot> {
+        if self.is_ready() {
+            self.value.take()
+        } else {
+            None
+        }
+    }
     pub fn operation(&self, now: u64, msize: u32) -> Result<Option<Operation>, Error> {
         if self.stage == Stage::Ready {
             return Ok(None);

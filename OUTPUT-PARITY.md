@@ -1,9 +1,9 @@
 # Output API parity
 
-Revision 4, 2026-10-16. Contract: API-1 output files in `spec/`.
+Revision 5, 2026-10-16. Contract: API-1 output files in `spec/`.
 C reference: `a88efe7`, `src/sophia_output_session.h`.
 Rust has codecs, provisional fixed-file startup and an immutable submission
-lane, ordered journal and topology fetcher; session integration remains.
+lane, ordered journal and topology fetcher joined by a developing session.
 
 | C capability | Rust status | Evidence or remaining work |
 | --- | --- | --- |
@@ -58,3 +58,16 @@ its fid before walking again. C’s existing `bootstrap_and_topology` and
 and wrong-publication Qid, through both startup paths. Rust has 28 passing
 output-client tests and strict Clippy; C’s full suite passes. The fetcher still
 needs the integrated socket driver and production-export qualification.
+
+`Session::from_opened` now joins these components on one owned pipeline. Three
+independent socket tests cover negotiation and topology delivery through EOF/
+clunk, Refused after its final ACK, and zero-budget/expired startup without
+sending queued negotiation. Caller time drives all retries; one shared I/O
+budget bounds dispatch. The verified topology transfers ownership into Session
+without a deep copy. This avoids copying its vectors and labels; native CPU
+savings are unmeasured. C already stores its decoded topology in session-owned
+fixed storage and needs no matching ownership change. Its existing bootstrap
+and refusal tests are the independent counterparts. Rust’s 31 output-client
+tests and strict Clippy pass. Proposal socket tests, attached-session cases,
+terminal/recovery coverage, connecting facade and production gates remain.
+Earlier component-only limits above describe those individual tests.
