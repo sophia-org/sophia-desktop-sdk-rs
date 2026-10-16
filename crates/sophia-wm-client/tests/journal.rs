@@ -216,6 +216,78 @@ fn retained_journal_is_limited_to_64_records() {
 }
 
 #[test]
+fn lifecycle_and_chord_causes_require_their_negotiated_capabilities() {
+    let all = (1u64 << 23) - 1;
+    for kind in [7u16, 8] {
+        let removed = if kind == 7 {
+            SOPHIA_WM_CAPABILITY_ACTION_LIFECYCLE | SOPHIA_WM_CAPABILITY_CHORD_ACTIONS
+        } else {
+            SOPHIA_WM_CAPABILITY_CHORD_ACTIONS
+        };
+        for enabled in [false, true] {
+            let mut j = journal();
+            j.append(
+                &negotiated(if enabled { all } else { all & !removed }),
+                0,
+                |_, _| Ok(()),
+            )
+            .unwrap();
+            let mut body = vec![];
+            for id in [55u64, 56, 31, 9, 3] {
+                body.extend(id.to_le_bytes());
+            }
+            body.extend(kind.to_le_bytes());
+            body.extend(1u16.to_le_bytes());
+            body.extend([0; 4]);
+            body.extend(1u64.to_le_bytes());
+            if kind == 7 {
+                body.extend(41u64.to_le_bytes());
+                body.extend(186u64.to_le_bytes());
+                body.extend(2u16.to_le_bytes());
+                body.extend(1u16.to_le_bytes());
+                body.extend(3u32.to_le_bytes());
+            } else {
+                for id in [43u64, 41, 186] {
+                    body.extend(id.to_le_bytes());
+                }
+            }
+            let result = j.append(&record(22, 2, &body), 1, |_, _| panic!());
+            if !enabled {
+                assert_eq!(result, Err(Error::Invalid));
+                assert!(j.head().is_none());
+            } else {
+                result.unwrap();
+                let Event::Cycle(cycle) = j.head().unwrap().1 else {
+                    panic!("expected Cycle")
+                };
+                match cycle.request.cause {
+                    PolicyRequestCause::ActionLifecycle {
+                        activation_serial,
+                        action,
+                        count,
+                        ..
+                    } => {
+                        assert_eq!((activation_serial, action.raw(), count), (41, 186, 3));
+                    }
+                    PolicyRequestCause::ChordAction {
+                        activation_serial,
+                        chord_serial,
+                        action,
+                    } => {
+                        assert_eq!(
+                            (activation_serial, chord_serial, action.raw()),
+                            (43, 41, 186)
+                        );
+                    }
+                    _ => panic!("wrong cause"),
+                }
+                assert_eq!(j.consume(), Ok(2));
+            }
+        }
+    }
+}
+
+#[test]
 fn negotiation_rejects_every_missing_dependency_and_duplicate_selection() {
     for caps in [
         SOPHIA_WM_CAPABILITY_PRESENTATION_ACTIONS,

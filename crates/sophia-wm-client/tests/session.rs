@@ -157,6 +157,7 @@ enum PeerScenario {
     RevokeAccepted,
     RevokeUncertain,
     ApplicationEvents,
+    ProfileCompletions,
 }
 fn fixture(
     event_first: bool,
@@ -174,7 +175,10 @@ fn fixture_scenario(
     fault: PeerScenario,
 ) -> (Session, thread::JoinHandle<Report>) {
     let (client, mut peer) = UnixStream::pair().unwrap();
-    let caps = if matches!(fault, PeerScenario::ApplicationEvents) {
+    let caps = if matches!(
+        fault,
+        PeerScenario::ApplicationEvents | PeerScenario::ProfileCompletions
+    ) {
         (1u64 << 23) - 1
     } else {
         128
@@ -355,6 +359,17 @@ fn fixture_scenario(
                                 if snapshot != 0 {
                                     queued.extend(cycle_bytes());
                                 }
+                            } else if matches!(fault, PeerScenario::ProfileCompletions) {
+                                assert!((257..=259).contains(&kind));
+                                assert_eq!(candidate.len(), 88);
+                                assert_eq!(&candidate[32..40], &40u64.to_le_bytes());
+                                assert_eq!(&candidate[40..48], &3u64.to_le_bytes());
+                                assert_eq!(&candidate[48..80], &[7; 32]);
+                                let outcome =
+                                    u16::from_le_bytes(candidate[80..82].try_into().unwrap());
+                                assert!((1..=3).contains(&outcome));
+                                assert_eq!(&candidate[82..], &[0; 6]);
+                                queued.extend(submitted(id, kind, id + 1));
                             } else {
                                 assert_eq!(kind, 263);
                                 queued.extend(submitted(id, kind, 3));
@@ -499,6 +514,45 @@ fn negotiated_session_submits_retries_and_drains_ordered_events_over_real_pipeli
         assert_eq!(report.retries, usize::from(retry));
         assert_eq!(report.acked, 4);
     }
+}
+
+#[test]
+fn every_profile_completion_preserves_echo_identity_without_spending_domain_ids() {
+    let (mut s, peer) = fixture_scenario(true, false, false, 0, PeerScenario::ProfileCompletions);
+    let mut now = 10;
+    drive_until(&mut s, &mut now, |s| {
+        s.acked() == 2 && s.obligations().deadline.is_none()
+    });
+    for kind in 0..3 {
+        for outcome in [
+            PolicyProfileOutcome::Accepted,
+            PolicyProfileOutcome::RejectedIdentity,
+            PolicyProfileOutcome::RejectedState,
+        ] {
+            let value = PolicyProfileCompletion {
+                transaction: TransactionId::from_raw(40),
+                identity: PolicyProfileIdentity::new(7, 3, [7; 32]).unwrap(),
+                outcome,
+            };
+            let candidate = match kind {
+                0 => Candidate::ProfilePrepared(value),
+                1 => Candidate::ProfileActive(value),
+                _ => Candidate::ProfileRolledBack(value),
+            };
+            let ticket = s.submit(&candidate, now + 100_000).unwrap();
+            drive_until(&mut s, &mut now, |s| {
+                s.custody(ticket) == Some(Custody::Submitted)
+                    && s.acked() == ticket + 1
+                    && s.obligations().deadline.is_none()
+            });
+            assert_eq!(s.state(), SessionState::Ready);
+        }
+    }
+    assert_eq!(s.next_transaction().unwrap(), 1);
+    s.close();
+    let report = peer.join().unwrap();
+    assert_eq!(report.candidates, 10);
+    assert_eq!(report.acked, 11);
 }
 
 #[test]

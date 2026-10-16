@@ -1,6 +1,6 @@
 # WM API parity
 
-Revision 5, 2026-10-16. Contract: the pinned API-1 WM files, schema and golden
+Revision 6, 2026-10-16. Contract: the pinned API-1 WM files, schema and golden
 records in `spec/`. C reference: `fbfcdd8`, `src/sophia_wm_session.h`;
 Rust base: `622d9c0`, with the obligations and startup-wake changes in this
 series. This maps implemented capabilities, not production qualification.
@@ -64,7 +64,17 @@ The [client guide](WM-CLIENT.md) describes ownership, errors and recovery.
 Scripted terminal checks are C's `ack_faults_and_revocation_keep_custody`
 and Rust's `ack_faults_and_revocation_preserve_exact_custody`; these do not
 replace the separate protected-admission fixture above.
-Also finish the remaining Cycle-cause and policy rollback scenarios and the operation-to-export
-evidence map. Publication, verified pins and foreign-language binding checks
+All nine profile-completion kind/outcome combinations now pass independent
+socket checks. The peers inspect literal echo identity and outcome bytes,
+confirm Submitted/ACK settlement and verify that no policy transaction ID was
+spent. Rust's journal checks lifecycle and chord causes with and without their
+negotiated capabilities; C's socket tests cover the same acceptance boundary.
+The SDK transports rollback commands/completions; application rollback policy
+is outside its authority.
+
+The operation map now covers the WM entry points above. The release audit still
+needs the paired artifacts and exact revisions across all roles, and must keep
+the distinction between scripted, supplied-admission and protected tests.
+Publication, verified pins and foreign-language binding checks
 remain t333 gates. These requirements cannot be waived by marking both SDKs
 unsupported.
