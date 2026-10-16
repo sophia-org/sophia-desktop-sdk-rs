@@ -55,7 +55,8 @@ fn main() {
     let args: Vec<_> = std::env::args_os().collect();
     let path = &args[1];
     let report = &args[2];
-    let revoke = args[3] == "revoke";
+    assert!(args[3] == "settle" || args[3] == "revoke" || args[3] == "loss");
+    let expect_loss = args[3] != "settle";
     let clock = Clock(Instant::now());
     let mut connecting = Connecting::new(
         UnixStream::connect(path).unwrap(),
@@ -80,7 +81,7 @@ fn main() {
     };
     assert!(s.commands().any(|c| c == command));
     assert_eq!(s.invoke(command, clock.now()).unwrap(), 1);
-    if revoke {
+    if expect_loss {
         while s.error().is_none() {
             clock.turn(&mut s);
         }

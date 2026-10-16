@@ -1,6 +1,6 @@
 # Administrative SDK parity
 
-Revision 10, 2026-10-16. Both SDKs now have developing administrative sessions
+Revision 11, 2026-10-16. Both SDKs now have developing administrative sessions
 and caller-connected socket facades. Qualification remains t333 work.
 
 The pinned file contract is copied unchanged from Sophia
@@ -175,3 +175,11 @@ action. This proves the file-service/SDK boundary, not service-process loss,
 installed-session behavior or release-wide qualification. Strict Rust Clippy
 and the independent C peer build pass. Service-loss/recovery and remaining
 integrated failure coverage still need qualification.
+
+Both peers also pass production service shutdown before and after ticket claim.
+Dropping the service stops and joins its worker and closes the sockets. The SDK
+reports uncertain custody and refuses another command in both schedules. The
+owner observes cancellation only for the unclaimed ticket; a claimed ticket
+remains dispatched and can finish after the client exits. This is orderly
+service teardown, not an abrupt process crash. Explicit recovery on a replacement
+service and remaining process-loss/negative-case coverage are still open.

@@ -594,3 +594,6 @@ transitions. Production and release qualification remain open.
 Admin map 10 adds paired production-export completion, stale-catalog refresh
 and admission revocation after owner claim. Service loss and release-wide
 qualification remain open.
+
+Admin map 11 adds paired production service teardown before and after owner
+claim, preserving client uncertainty and the server's queued/dispatched boundary.
