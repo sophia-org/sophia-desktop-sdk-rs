@@ -1,6 +1,6 @@
 # Portal SDK parity
 
-Revision 5, 2026-10-16. Recipient components are developing; there is no complete
+Revision 6, 2026-10-16. Recipient components are developing; there is no complete
 portal client or parity claim.
 
 The unchanged recipient contract in `spec/portal-client-files.md` comes from
@@ -73,3 +73,13 @@ Five Rust client tests, C's startup test and strict Rust Clippy pass. Their
 scripted initial attach stands in for completed authentication; these tests do
 not qualify the real launch exchange. Authentication composition, recipient
 session operations, retained frame reads and production gates remain.
+
+Independently built C and Rust peers now pass Sophia's opt-in
+`external_sdk_portal_startup_uses_real_namespace_authentication` gate.
+The production namespace launcher and Factotum admit each protected peer;
+namespace discovery selects the portal endpoint, and the SDK authenticates
+before handing its existing root to metadata startup. Each observes the
+unavailable request capability and retains only the root after api clunk.
+The original launch relay remains open until peer exit. Strict Rust Clippy
+passes. This qualifies startup composition, not frame delivery, capture
+custody, revocation or physical presentation. No SDK pin adoption is implied.

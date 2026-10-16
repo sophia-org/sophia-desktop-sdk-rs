@@ -17,4 +17,6 @@ sophia-9p-records.workspace = true
 workspace = true
 
 [dev-dependencies]
+sophia-launch-client = { path = "../sophia-launch-client" }
+sophia-namespace-client = { path = "../sophia-namespace-client" }
 rustix = { workspace = true, features = ["event", "std"] }
