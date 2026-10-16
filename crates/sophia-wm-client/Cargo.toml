@@ -10,6 +10,8 @@ repository.workspace = true
 
 [dependencies]
 sophia-wm-protocol.workspace = true
+sophia-9p-client.workspace = true
+sophia-9p-records.workspace = true
 
 [lints]
 workspace = true

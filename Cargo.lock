@@ -151,6 +151,8 @@ dependencies = [
 name = "sophia-wm-client"
 version = "0.3.0"
 dependencies = [
+ "sophia-9p-client",
+ "sophia-9p-records",
  "sophia-wm-protocol",
 ]
 
