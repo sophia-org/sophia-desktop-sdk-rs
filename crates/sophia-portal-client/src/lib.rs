@@ -1,4 +1,5 @@
 //! Developing recipient client components; callers supply authenticated transport.
+pub mod frame;
 pub mod read_window;
 pub mod snapshot;
 pub mod startup;

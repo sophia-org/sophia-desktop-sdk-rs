@@ -1,6 +1,6 @@
 # Portal SDK parity
 
-Revision 7, 2026-10-16. Recipient components are developing; there is no complete
+Revision 8, 2026-10-16. Recipient components are developing; there is no complete
 portal client or parity claim.
 
 The unchanged recipient contract in `spec/portal-client-files.md` comes from
@@ -99,3 +99,25 @@ completion is not image completion: the eventual session must verify EOF,
 reread the retained metadata fid to reject replacement, and clunk successfully.
 No private qid arithmetic is required. This scheduler copies no pixels; wire
 integration, frame storage ownership and production delivery remain unfinished.
+
+Both now integrate retained-frame reads with the four-request window. They
+retain frame-info and frame fids, require exact payload and EOF, reread the
+original metadata fid, and require both clunks before exposing a completed
+image. No private qid arithmetic or automatic reconnect is used. An explicit
+second read reuses the root and image storage without fetching api again.
+
+Rust owns the role pipeline and reusable Vec, growing it once if needed after
+metadata validation. It preserves initialized storage between captures, avoiding
+another zero-fill for an unchanged size. C borrows the pipeline and caller image
+storage, rejects insufficient capacity and allocates nothing. Both place each
+reply directly in the final image buffer; there is no second full-image copy.
+Rust transports still allocate reply data. Rust drops its pipeline on failure;
+C requires the caller to close its borrowed descriptor. Partial storage is
+scratch, never a completed image. Retain the launch relay separately.
+
+Independent socket tests pass short reads, one-byte dispatch, buffer/connection
+reuse, stale or changed metadata, extra pixels, early termination, clunk refusal,
+deadline expiry and cancellation. C additionally tests insufficient capacity.
+All nine Rust client tests and strict Clippy pass; C's frame-client test passes.
+These are scripted peers, not production frame-delivery or revocation evidence.
+Capture requests and the remaining recipient operations are still unfinished.
