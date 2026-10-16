@@ -116,11 +116,29 @@ struct Report {
     acked: u64,
     snapshot_opens: usize,
 }
+#[derive(Clone, Copy, Default)]
+enum Fault {
+    #[default]
+    None,
+    ShortAck,
+    AckError(u32),
+    RevokeAccepted,
+    RevokeUncertain,
+}
 fn fixture(
     event_first: bool,
     retry: bool,
     eof: bool,
     snapshot: u8,
+) -> (Session, thread::JoinHandle<Report>) {
+    fixture_fault(event_first, retry, eof, snapshot, Fault::None)
+}
+fn fixture_fault(
+    event_first: bool,
+    retry: bool,
+    eof: bool,
+    snapshot: u8,
+    fault: Fault,
 ) -> (Session, thread::JoinHandle<Report>) {
     let (client, mut peer) = UnixStream::pair().unwrap();
     peer.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
@@ -199,6 +217,11 @@ fn fixture(
                     if files[&fid] == "events" {
                         assert!(event_read.is_none());
                         assert_eq!(at, offset);
+                        if report.candidates == 2 && matches!(fault, Fault::RevokeAccepted) {
+                            peer.write_all(&frame(7, tag, &116u32.to_le_bytes()))
+                                .unwrap();
+                            break;
+                        }
                         if queued.is_empty() {
                             event_read = Some((tag, count));
                         } else {
@@ -234,6 +257,19 @@ fn fixture(
                         "ack" => {
                             assert_eq!(data.len(), 16);
                             report.acked = u64::from_le_bytes(data[8..16].try_into().unwrap());
+                            if report.acked >= 3 {
+                                let refusal = match fault {
+                                    Fault::ShortAck => Some(frame(119, tag, &15u32.to_le_bytes())),
+                                    Fault::AckError(errno) => {
+                                        Some(frame(7, tag, &errno.to_le_bytes()))
+                                    }
+                                    _ => None,
+                                };
+                                if let Some(refusal) = refusal {
+                                    peer.write_all(&refusal).unwrap();
+                                    break;
+                                }
+                            }
                             peer.write_all(&response).unwrap();
                         }
                         "submit" => {
@@ -256,6 +292,15 @@ fn fixture(
                             }
                             if let Some(old) = &old_submit {
                                 assert_eq!(old, data);
+                            }
+                            if kind == 263 && matches!(fault, Fault::RevokeUncertain) {
+                                let (event_tag, _) =
+                                    event_read.take().expect("outstanding event read");
+                                // The submit has reached the peer, but no Submitted
+                                // record establishes custody before revocation.
+                                peer.write_all(&frame(7, event_tag, &116u32.to_le_bytes()))
+                                    .unwrap();
+                                break;
                             }
                             if kind == 256 {
                                 queued.extend(record(16, 1, &128u64.to_le_bytes()));
@@ -406,6 +451,72 @@ fn negotiated_session_submits_retries_and_drains_ordered_events_over_real_pipeli
         assert_eq!(report.candidates, 2);
         assert_eq!(report.retries, usize::from(retry));
         assert_eq!(report.acked, 4);
+    }
+}
+
+#[test]
+fn ack_faults_and_revocation_preserve_exact_custody() {
+    for fault in [
+        Fault::ShortAck,
+        Fault::AckError(22),
+        Fault::AckError(116),
+        Fault::RevokeAccepted,
+        Fault::RevokeUncertain,
+    ] {
+        let (mut s, peer) = fixture_fault(true, false, false, 0, fault);
+        let mut now = 10;
+        drive_until(&mut s, &mut now, |s| {
+            s.acked() == 2 && s.obligations().deadline.is_none()
+        });
+        let ticket = s
+            .submit(
+                &Candidate::SessionOperation(WmFileSessionOperation {
+                    transaction: TransactionId::from_raw(19),
+                    request: PolicySessionOperationRequest {
+                        connection_epoch: 7,
+                        request_id: 31,
+                        operation: 1,
+                        target: None,
+                    },
+                }),
+                now + 100_000,
+            )
+            .unwrap();
+        let end = Instant::now() + Duration::from_secs(2);
+        while s.error().is_none() {
+            assert!(Instant::now() < end);
+            now += 1;
+            let _ = s.dispatch(now, 65536);
+            thread::yield_now();
+        }
+        let errno = match fault {
+            Fault::AckError(errno) => Some(errno),
+            Fault::RevokeAccepted | Fault::RevokeUncertain => Some(116),
+            _ => None,
+        };
+        let expected = if errno == Some(116) {
+            SessionState::Stale
+        } else {
+            SessionState::Failed
+        };
+        let custody = if matches!(fault, Fault::RevokeUncertain) {
+            Custody::UnknownDisconnected
+        } else {
+            Custody::Submitted
+        };
+        assert_eq!(s.state(), expected);
+        assert_eq!(s.remote_error(), errno);
+        assert_eq!(s.custody(ticket), Some(custody));
+        assert_eq!(s.custody(1), Some(Custody::Submitted));
+        assert!(s.event().is_none() && s.snapshot_result().is_none() && s.fd().is_none());
+        assert_eq!(s.wake_deadline(), None);
+        let error = s.error().unwrap().clone();
+        assert_eq!(s.dispatch(now, 65536), Err(error.clone()));
+        assert_eq!(s.consume(), Err(error));
+        s.close();
+        assert_eq!(s.state(), expected);
+        assert_eq!(s.custody(ticket), Some(custody));
+        assert_eq!(peer.join().unwrap().candidates, 2);
     }
 }
 

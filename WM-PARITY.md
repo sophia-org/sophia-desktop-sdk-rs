@@ -1,6 +1,6 @@
 # WM API parity
 
-Revision 2, 2026-10-16. Contract: the pinned API-1 WM files, schema and golden
+Revision 3, 2026-10-16. Contract: the pinned API-1 WM files, schema and golden
 records in `spec/`. C reference: `fbfcdd8`, `src/sophia_wm_session.h`;
 Rust base: `622d9c0`, with the obligations and startup-wake changes in this
 series. This maps implemented capabilities, not production qualification.
@@ -14,7 +14,7 @@ series. This maps implemented capabilities, not production qualification.
 | `poll_fd`, `poll_events`, `timeout` | `fd`, `io_interest`, `wake_deadline` | Borrowed descriptor is monitoring-only. Recompute after API calls; immediate work precedes sleep. Connecting includes negotiation retry wakes. |
 | `dispatch` | `dispatch(now, byte_budget)` | Caller monotonic milliseconds; shared per-call I/O budget. Rust allows zero-byte buffered work, whereas C refuses zero budget. Neither performs socket I/O at zero budget. |
 | `obligations` | `Session::obligations`, `Connecting::obligations` | Consumed/acked/submitted watermarks, deadlines, retries, event/snapshot readiness and ACK barrier. Terminal sessions retain watermarks and clear pending flags. |
-| `remote_error` | `remote_error` | Wire errno retained separately from local/protocol failures. Full ESTALE/revocation peer coverage remains pending. |
+| `remote_error` | `remote_error` | Wire errno retained separately from local/protocol failures. Independent socket tests cover ACK short/error/ESTALE and event-read revocation before/after custody; explicit close preserves results. |
 | `event`, `consume` | `event`, `consume` | Borrowed stable head; controls remain internal; cumulative ACK never skips the head. `tests/journal.rs` and socket session tests. |
 | `submit` | `submit(&Candidate, deadline)` | Seven application candidate kinds; copied immutable bytes, one candidate, local ticket. `tests/candidate.rs`, `tests/submission.rs`. |
 | `outcome` | `custody` | Last 64 results; Submitted is custody, not commit. Refusal, unsent and uncertain disconnect remain distinct. C Unavailable maps to Rust None. |
@@ -42,8 +42,11 @@ The C run uses Sophia's pinned `ba09265`; candidate C WM sources remain unchange
 This fixture supplies admission and outcomes, so it proves neither protected
 launch authentication nor Engine commit/presentation.
 
-Also finish public error/ownership documentation,
-revocation and terminal-error peer scenarios, and the operation-to-export
+The [client guide](WM-CLIENT.md) describes ownership, errors and recovery.
+Scripted terminal checks are C's `ack_faults_and_revocation_keep_custody`
+and Rust's `ack_faults_and_revocation_preserve_exact_custody`; these do not
+prove the production grant owner revokes an authenticated client.
+Also finish protected admission/revocation, profile/outcome scenarios and the operation-to-export
 evidence map. Publication, verified pins and foreign-language binding checks
 remain t333 gates. These requirements cannot be waived by marking both SDKs
 unsupported.
