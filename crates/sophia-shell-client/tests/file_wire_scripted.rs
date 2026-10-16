@@ -28,7 +28,7 @@ const EINVAL: u32 = 22;
 const EALREADY: u32 = 114;
 /// The first `EAGAIN` backoff the client documents (`RETRY_FIRST`): a pass
 /// shorter than this cannot have reached the retry by time alone.
-const RETRY_FIRST: Duration = Duration::from_millis(2);
+const RETRY_FIRST: Duration = Duration::from_millis(4);
 /// What one `events` or object read asks for: `msize - 11`.
 const READ_COUNT: u32 = MSIZE - 11;
 
@@ -492,7 +492,7 @@ fn an_eagain_submit_goes_again_at_its_wake_deadline() {
     peer.answer_error(refused.tag, EAGAIN);
     if !pass_after_eagain(&mut connection, &mut peer) {
         let wake = connection.wake_deadline().expect("a retry is scheduled");
-        assert!(wake <= Instant::now() + Duration::from_millis(64));
+        assert!(wake <= Instant::now() + Duration::from_millis(256));
         let started = Instant::now();
         connection.wait_for_io(Duration::from_secs(1)).unwrap();
         assert!(started.elapsed() < Duration::from_millis(500));
@@ -1683,6 +1683,68 @@ fn a_clunk_the_pipeline_cannot_queue_fails_the_connection_closed() {
 }
 
 // ---- liveness ----
+
+#[test]
+fn explicit_dispatch_uses_caller_time_and_rejects_invalid_input_without_progress() {
+    let (mut connection, mut peer) = connect(bar(0));
+    enqueue_demand(&mut connection, 1);
+    let refused = submit(&mut connection, &mut peer);
+    let mut now = Instant::now();
+    let mut request = refused;
+    for delay in [4, 8, 16, 32, 64, 128, 256, 256] {
+        peer.answer_error(request.tag, EAGAIN);
+        connection.dispatch(now, 65536).unwrap();
+        peer.pump();
+        let deadline = now + Duration::from_millis(delay);
+        assert_eq!(connection.wake_deadline(), Some(deadline));
+        assert!(peer.submits.is_empty(), "no retry in the refusal pass");
+        let interest = connection.io_interest().unwrap();
+        assert!(matches!(
+            connection.dispatch(now - Duration::from_millis(1), 65536),
+            Err(ShellClientError::InvalidArgument(_))
+        ));
+        assert_eq!(connection.io_interest().unwrap(), interest);
+        assert_eq!(connection.wake_deadline(), Some(deadline));
+        connection
+            .dispatch(deadline - Duration::from_millis(1), 65536)
+            .unwrap();
+        peer.pump();
+        assert!(peer.submits.is_empty(), "caller time is not due");
+        connection.dispatch(deadline, 65536).unwrap();
+        peer.pump();
+        let again = peer.submits.pop_front().expect("due retry");
+        assert_eq!(again.data, request.data, "same epoch and ID");
+        assert_eq!(peer.transactions.len(), 1, "staged bytes were retained");
+        request = again;
+        now = deadline;
+    }
+}
+
+#[test]
+fn one_byte_dispatches_preserve_shell_progress_and_custody() {
+    let (mut connection, mut peer) = connect(bar(0));
+    let ticket = enqueue_demand(&mut connection, 1);
+    let now = Instant::now();
+    let end = now + WAIT;
+    connection.dispatch(now, 0).unwrap();
+    peer.pump();
+    assert_eq!(peer.walk_count("transaction"), 0, "zero budget sent bytes");
+    while peer.submits.is_empty() {
+        connection.dispatch(now, 1).unwrap();
+        peer.pump();
+        assert!(Instant::now() < end, "small budget stalled a request");
+    }
+    let request = peer.submits.pop_front().unwrap();
+    let (submission, kind) = staged(&peer, &request);
+    let event = peer.submitted(submission, kind);
+    peer.push(event);
+    peer.answer_write(request.tag, SHELL_FILE_SUBMIT_BYTES as u32);
+    while connection.custody(ticket) != Some(Custody::Submitted) {
+        connection.dispatch(now, 1).unwrap();
+        peer.pump();
+        assert!(Instant::now() < end, "small budget stalled custody");
+    }
+}
 
 #[test]
 fn external_loop_drains_local_events_and_does_not_watch_idle_writability() {

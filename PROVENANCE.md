@@ -1,5 +1,23 @@
 # Provenance
 
+## t333 caller-controlled dispatch
+
+`ShellConnection::dispatch` accepts monotonic caller time and a whole-call byte
+budget. A shared `IoBudget` limits all internal transport rounds to the supplied
+bytes and 32 syscall attempts per direction. Zero budget allows local processing
+without socket I/O. Backward caller time is rejected without changing state.
+The existing convenience driver retains its own clock and work limits, including
+the conditional clock read when a retry actually needs time. Both drivers now
+use the C SDK's 4–256 ms retry schedule; wire custody rules are unchanged.
+
+Workspace tests cover deterministic caller-time retries through the cap, invalid
+time, one-byte progress to Submitted custody, partial reads/writes and shared
+budget exhaustion. C has a matching partial-request budget control alongside
+its existing monotonic-clock and retry tests. Clock representation limits and
+driver-mixing rules are explicit in `API-PARITY.md`. This candidate still needs
+Sophia source-pin adoption and production-export qualification; no native
+performance benefit or installed-desktop acceptance is claimed.
+
 ## t333 external event-loop API
 
 The shell client now lends its socket through `AsFd` and reports read/write

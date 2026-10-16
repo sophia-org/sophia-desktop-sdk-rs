@@ -47,6 +47,8 @@ pub struct ShellClientOptions {
 /// failure so a shell can report operator policy without claiming corruption.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ShellClientError {
+    /// Invalid caller input; the dispatch did not change the connection.
+    InvalidArgument(&'static str),
     Io(String),
     /// A `sophia_shell_fs_v1` envelope or record failed to encode/decode.
     FileCodec(sophia_shell_protocol::shell_files::ShellFilePayloadError),
@@ -478,7 +480,33 @@ impl ShellConnection {
     /// transport rounds, each limited to 256 KiB and 64 syscalls per direction.
     pub fn poll_io(&mut self) -> Result<(), ShellClientError> {
         self.wire
-            .poll_io(&mut self.output, &mut self.inbox, &mut self.ledger)
+            .poll_io(&mut self.output, &mut self.inbox, &mut self.ledger, None)
+    }
+
+    /// Nonblocking external-loop dispatch, with caller time and a shared
+    /// per-call byte budget. At most `byte_budget` bytes and 32 syscall attempts
+    /// per direction are spent across all internal rounds (at most 32).
+    /// `now` is used for every retry decision in this call, without a clock read.
+    /// Successive supplied times must not decrease. Backward time or a value
+    /// that cannot represent a 256 ms retry is rejected without state changes.
+    /// Zero budget permits local work but no socket I/O. Query `io_interest` and
+    /// drain typed events before sleeping, and service again by `wake_deadline`.
+    ///
+    /// Use `take_*` receive methods with this API: `poll_*` and `wait_for_io`
+    /// invoke the default clock/budget driver. If mixing drivers, supplied time
+    /// must follow the real `Instant` timeline; simulated time requires using
+    /// only `dispatch` and non-driving receive methods after connection setup.
+    pub fn dispatch(
+        &mut self,
+        now: std::time::Instant,
+        byte_budget: usize,
+    ) -> Result<(), ShellClientError> {
+        self.wire.poll_io(
+            &mut self.output,
+            &mut self.inbox,
+            &mut self.ledger,
+            Some((now, byte_budget)),
+        )
     }
 }
 

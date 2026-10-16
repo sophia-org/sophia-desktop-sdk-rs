@@ -6,7 +6,7 @@
 use std::collections::VecDeque;
 use std::os::fd::{AsFd, BorrowedFd};
 
-use sophia_9p_client::pipeline::{PipelineError, Reply};
+use sophia_9p_client::pipeline::{IoBudget, PipelineError, Reply};
 use sophia_9p_records::Tag;
 use sophia_shell_protocol::shell_files::{
     SHELL_FILE_ACK_BYTES, ShellFileAck, encode_shell_file_ack,
@@ -41,12 +41,27 @@ impl FileWire {
         output: &mut ClientOutbox,
         inbox: &mut VecDeque<Inbound>,
         ledger: &mut Ledger,
+        dispatch: Option<(std::time::Instant, usize)>,
     ) -> Result<(), ShellClientError> {
+        if let Some((now, _)) = dispatch
+            && (self.last_dispatch_time.is_some_and(|last| now < last)
+                || now.checked_add(super::RETRY_MAX).is_none())
+        {
+            return Err(ShellClientError::InvalidArgument("dispatch time"));
+        }
         if let Some(error) = &self.fatal {
             return Err(error.clone());
         }
+        self.dispatch_time = dispatch.map(|(now, _)| now);
+        if let Some(now) = self.dispatch_time {
+            self.last_dispatch_time = Some(now);
+        }
         self.pass += 1;
-        let result = self.drive(output, inbox);
+        let result = self.drive(
+            output,
+            inbox,
+            dispatch.map(|(_, bytes)| IoBudget::new(bytes)),
+        );
         if let Err(error) = &result {
             self.fatal = Some(error.clone());
             // Buffered events are still trusted unless one of them caused
@@ -124,11 +139,16 @@ impl FileWire {
         &mut self,
         output: &mut ClientOutbox,
         inbox: &mut VecDeque<Inbound>,
+        mut budget: Option<IoBudget>,
     ) -> Result<(), ShellClientError> {
         self.service_pending = true;
         for _ in 0..MAX_ROUNDS {
             let mut eof = false;
-            match self.pipeline.poll() {
+            let result = match &mut budget {
+                Some(budget) => self.pipeline.poll_with_budget(budget),
+                None => self.pipeline.poll(),
+            };
+            match result {
                 Ok(()) => {}
                 Err(PipelineError::Io(kind)) if is_disconnect(kind) => {
                     eof = true;
@@ -165,7 +185,10 @@ impl FileWire {
             progressed |= self.maybe_read_events(inbox)?;
             progressed |= self.maybe_send_ack()?;
             if !progressed {
-                self.service_pending = false;
+                self.service_pending = budget.as_ref().is_some_and(IoBudget::exhausted);
+                break;
+            }
+            if budget.as_ref().is_some_and(IoBudget::exhausted) {
                 break;
             }
         }

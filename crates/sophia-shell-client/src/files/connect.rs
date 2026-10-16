@@ -378,6 +378,8 @@ impl FileWire {
             progress: 0,
             pass: 0,
             service_pending: true,
+            dispatch_time: None,
+            last_dispatch_time: None,
             early_submitted: None,
             submitted_sequence: 0,
             pending: VecDeque::new(),

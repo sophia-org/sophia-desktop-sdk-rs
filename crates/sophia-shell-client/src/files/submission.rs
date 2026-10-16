@@ -165,7 +165,10 @@ impl FileWire {
             return Ok(false);
         };
         // Only a pending retry without new event progress needs a clock read.
-        if self.pass == *pass || (self.progress == *progress && Instant::now() < *not_before) {
+        if self.pass == *pass
+            || (self.progress == *progress
+                && self.dispatch_time.unwrap_or_else(Instant::now) < *not_before)
+        {
             return Ok(false);
         }
         let fid = *fid;
@@ -293,7 +296,8 @@ impl FileWire {
                             return Err(ShellClientError::Protocol("EAGAIN after Submitted"));
                         }
                         let (progress, pass) = (self.progress, self.pass);
-                        let not_before = Instant::now() + self.next_backoff();
+                        let not_before =
+                            self.dispatch_time.unwrap_or_else(Instant::now) + self.next_backoff();
                         if let Some(Current::Submission { phase, .. }) = &mut self.current {
                             *phase = SubmissionPhase::RetryWait {
                                 fid,

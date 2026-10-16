@@ -28,6 +28,12 @@ interests (plus hangup/errors), and wake by the retry deadline even on an idle
 socket. The borrowed descriptor is for monitoring only; the SDK owns I/O.
 `wait_for_io` remains available for applications that need a simple wait.
 
+Use `dispatch(now, byte_budget)` to supply time and bound one complete service
+call to that many bytes and 32 syscall attempts per direction. A zero budget
+does no socket I/O. Drain with `take_*` methods when controlling the clock;
+`poll_*` receive methods and `wait_for_io` use the default driver. Retry backoff
+matches C: 4 ms, doubling to 256 ms, with earlier retry after event progress.
+
 The protocol crate also carries the descriptor, tabs, shortcut/reference and
 revision-4 launcher records, native file codecs and pure validation. This
 descriptor client role follows `spec/sophia-shell-files-v1.kdl` and

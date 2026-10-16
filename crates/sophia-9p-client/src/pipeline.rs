@@ -203,6 +203,37 @@ pub struct IoInterest {
     pub immediate: bool,
 }
 
+/// Remaining transport work for one external-loop dispatch. Reuse the same
+/// value across internal rounds so a round cannot replenish its caller's budget.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct IoBudget {
+    read_bytes: usize,
+    write_bytes: usize,
+    read_calls: usize,
+    write_calls: usize,
+}
+
+impl IoBudget {
+    /// At most `bytes` and 32 syscall attempts per direction. Zero bytes
+    /// allows buffered reply decoding but no socket reads or writes.
+    pub fn new(bytes: usize) -> Self {
+        Self {
+            read_bytes: bytes,
+            write_bytes: bytes,
+            read_calls: 32,
+            write_calls: 32,
+        }
+    }
+
+    /// Either direction has spent its byte or syscall allowance.
+    pub fn exhausted(&self) -> bool {
+        self.read_bytes == 0
+            || self.write_bytes == 0
+            || self.read_calls == 0
+            || self.write_calls == 0
+    }
+}
+
 /// One completed reply. `Error` is the server's `Rlerror`: a normal outcome,
 /// not a pipeline failure.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -647,11 +678,24 @@ impl Pipeline {
     /// replies, at most [`IO_BYTE_BUDGET`] bytes in at most
     /// [`IO_SYSCALL_BUDGET`] syscalls per direction.
     pub fn poll(&mut self) -> Result<(), PipelineError> {
+        let mut budget = IoBudget {
+            read_bytes: IO_BYTE_BUDGET,
+            write_bytes: IO_BYTE_BUDGET,
+            read_calls: IO_SYSCALL_BUDGET,
+            write_calls: IO_SYSCALL_BUDGET,
+        };
+        self.poll_with_budget(&mut budget)
+    }
+
+    /// Progress within a shared dispatch budget. Each syscall attempt spends
+    /// credit, including interruption and WouldBlock. Actual bytes spend the
+    /// byte allowance. Buffered replies may be decoded even when it is exhausted.
+    pub fn poll_with_budget(&mut self, budget: &mut IoBudget) -> Result<(), PipelineError> {
         if self.poisoned {
             return Err(PipelineError::Poisoned);
         }
-        self.write_output()?;
-        self.read_input()?;
+        self.write_output(&mut budget.write_bytes, &mut budget.write_calls)?;
+        self.read_input(&mut budget.read_bytes, &mut budget.read_calls)?;
         Ok(())
     }
 
@@ -854,13 +898,13 @@ impl Pipeline {
         Ok(())
     }
 
-    fn write_output(&mut self) -> Result<(), PipelineError> {
-        let mut budget = IO_BYTE_BUDGET;
-        for _ in 0..IO_SYSCALL_BUDGET {
-            if self.out_buf.is_empty() || budget == 0 {
+    fn write_output(&mut self, budget: &mut usize, calls: &mut usize) -> Result<(), PipelineError> {
+        while *calls > 0 {
+            if self.out_buf.is_empty() || *budget == 0 {
                 break;
             }
-            let take = self.output_pending().min(budget);
+            let take = self.output_pending().min(*budget);
+            *calls -= 1;
             match self
                 .stream
                 .write(&self.out_buf[self.out_start..self.out_start + take])
@@ -868,7 +912,7 @@ impl Pipeline {
                 Ok(0) => return Err(self.poison(PipelineError::Io(io::ErrorKind::WriteZero))),
                 Ok(count) => {
                     self.record_output_write(count);
-                    budget -= count;
+                    *budget -= count;
                 }
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
@@ -905,20 +949,20 @@ impl Pipeline {
         }
     }
 
-    fn read_input(&mut self) -> Result<(), PipelineError> {
-        let mut budget = IO_BYTE_BUDGET;
-        for _ in 0..IO_SYSCALL_BUDGET {
+    fn read_input(&mut self, budget: &mut usize, calls: &mut usize) -> Result<(), PipelineError> {
+        while *calls > 0 {
             self.drain_frames()?;
-            if budget == 0 || self.reserved_reply_bytes >= self.limits.max_buffered_input {
+            if *budget == 0 || self.reserved_reply_bytes >= self.limits.max_buffered_input {
                 break;
             }
             let mut chunk = [0u8; READ_CHUNK];
-            let want = chunk.len().min(budget);
+            let want = chunk.len().min(*budget);
+            *calls -= 1;
             match self.stream.read(&mut chunk[..want]) {
                 Ok(0) => return Err(self.poison(PipelineError::Io(io::ErrorKind::UnexpectedEof))),
                 Ok(count) => {
                     self.in_buf.extend_from_slice(&chunk[..count]);
-                    budget -= count;
+                    *budget -= count;
                 }
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,

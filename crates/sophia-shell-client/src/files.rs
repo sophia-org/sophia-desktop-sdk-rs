@@ -83,8 +83,8 @@ enum QueuedKind {
 /// with `EAGAIN`. A retry also goes early once an event has been consumed,
 /// since that is what frees journal room or a permit; it never goes in the
 /// same pass that saw the refusal.
-const RETRY_FIRST: Duration = Duration::from_millis(2);
-const RETRY_MAX: Duration = Duration::from_millis(64);
+const RETRY_FIRST: Duration = Duration::from_millis(4);
+const RETRY_MAX: Duration = Duration::from_millis(256);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SubmissionPhase {
@@ -247,6 +247,10 @@ pub(crate) struct FileWire {
     pass: u64,
     /// New admission or an exhausted drive needs another local service pass.
     service_pending: bool,
+    /// Explicit dispatch time for this pass; absent for the convenience driver.
+    dispatch_time: Option<Instant>,
+    /// Monotonicity check for successive caller-supplied times.
+    last_dispatch_time: Option<Instant>,
     /// A `Submitted` found among the buffered events while the submit reply
     /// was being settled, before normal intake reaches it; intake accepts
     /// that one event once.
