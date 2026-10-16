@@ -1,5 +1,22 @@
 # Provenance
 
+## t333 prepared content reservations
+
+The Rust shell client exposes reservations for one content operation or a whole
+candidate. Preparation runs the existing encoder, acquires pending-wire, outbox
+and custody-ledger capacity, and returns an exclusive connection borrow. Commit
+moves the prepared units into the queue and issues tickets without further
+allocation or I/O. Cancel and Drop discard the staged units and upload claim.
+This guarantees local admission, not remote custody or semantic acceptance.
+
+Workspace tests, strict all-target Clippy and formatting pass. Controls cover
+exclusive borrowing, cancellation, saturation, invalid groups, slot reuse and
+disconnect, plus queue storage before/after commit. C's existing reservation
+controls gain successful cancellation coverage; `make check` passes. Matrix
+revision 3 names the remaining gaps: arbitrary groups, delayed-content and
+serviceable reservations, and native lifecycle integration. Source-pin adoption,
+production-export and physical/performance gates remain separate.
+
 ## t333 caller-controlled dispatch
 
 `ShellConnection::dispatch` accepts monotonic caller time and a whole-call byte

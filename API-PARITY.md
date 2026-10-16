@@ -1,10 +1,10 @@
 # C and Rust SDK API parity
 
-Matrix revision 2, 2026-10-16. Sophia t333 owns the complete parity gate.
-This first slice maps shell event-loop operations; it is not a complete role
+Matrix revision 3, 2026-10-16. Sophia t333 owns the complete parity gate.
+This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
-`sophia-desktop-sdk-c` `cc6bf11` (library bytes unchanged from `ba09265d`).
+`sophia-desktop-sdk-c` `0e4b2fd` (library bytes unchanged from `ba09265d`).
 
 | Operation | Native C | Native Rust | Contract or remaining difference |
 | --- | --- | --- | --- |
@@ -41,8 +41,34 @@ receives; `poll_*` and `wait_for_io` drive the default clock and budget. Simulat
 time must not be mixed with those convenience calls. These are documented API
 differences, not evidence that every shell operation already has a counterpart.
 
-Remaining inventory: every shell revision, operation, event, terminal outcome,
-admission/reservation and native lifecycle helper; generic transport, launch and
+## Content admission and reservations
+
+| Operation | Native C | Native Rust | Contract or remaining difference |
+| --- | --- | --- | --- |
+| Atomic admission | `sophia_ss_submit` | `enqueue_content_tracked`, `enqueue_content_group_tracked` | All encoded units enter the bounded queue or none. Local admission is not server custody. Rust groups currently represent a whole candidate, not an arbitrary list of records. |
+| Prepare before a local effect | `sophia_ss_reserve` | `reserve_content`, `reserve_content_group` | C reserves counts/bytes before records are known. Rust validates and owns the records up front, then exclusively borrows the connection until commit/cancel. |
+| Commit | `sophia_ss_commit` | `ContentReservation::commit` | Rust's prepared commit needs no allocation, I/O or capacity check and returns Queued tickets. C validates records at commit and retains its reservation on invalid input. Neither promises remote acceptance. |
+| Cancel | `sophia_ss_cancel` | `ContentReservation::cancel` or Drop | No admission or tickets. Rust discards staged upload-slot claims too. Internal wire submission IDs may be skipped. |
+| Continue servicing while reserved | C can dispatch and admit within unreserved capacity | Exclusive borrow prevents driving or another admission | A remaining capability gap, along with reserving space before choosing records. Do not hold a Rust reservation across an event-loop turn. |
+| Custody query | `sophia_ss_outcome` | `custody(Ticket)` | Local/admitted, in-flight, Submitted, refused errno, dropped-unsent and unknown map to the corresponding Rust values. Submitted is not semantic acceptance. |
+| Old/unknown ticket | UNAVAILABLE for evicted, ARGUMENT for unissued | `None` for either | Rust does not currently distinguish those cases. Both retain the latest 256 tickets. |
+
+Rust scripted controls cover cancellation/drop without tickets or I/O, commit
+to Queued and then Submitted, invalid groups, full queues, upload-slot reuse,
+and a peer disappearing while the reservation is held. A compile-fail example
+checks exclusive borrowing; an outbox test checks capacity acquisition before
+commit and preservation of payload storage. C's `reservation` control covers
+cancel, capacity isolation, invalid commits and closure while reserved.
+
+Rust preparation uses the existing encoder and local checks. Runtime grant,
+upload and semantic decisions still belong to the session. For lifecycle-aware
+candidate registration, use the existing `enqueue_candidate_tracked`; a plain
+content reservation does not update `ContentLifecycle`. Native lifecycle
+helpers, arbitrary multi-record groups and delayed-content reservations remain
+open under t333.
+
+Remaining inventory: every shell revision, operation, event, terminal outcome
+and native lifecycle helper; generic transport, launch and
 namespace ownership; WM/output clients missing in Rust; experimental lock client
 missing in Rust; administration missing in both. Broker and portal coverage must
 follow their accepted public contracts. No missing capability is supplied by an

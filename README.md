@@ -34,6 +34,14 @@ does no socket I/O. Drain with `take_*` methods when controlling the clock;
 `poll_*` receive methods and `wait_for_io` use the default driver. Retry backoff
 matches C: 4 ms, doubling to 256 ms, with earlier retry after event progress.
 
+Before a local UI change that needs a content record, `reserve_content` (or
+`reserve_content_group` for a complete candidate) validates and holds the record
+and its queue capacity. Perform the local change, then call the returned
+handle's `commit`; dropping it cancels. Commit performs no I/O or allocation and
+returns Queued tickets. The handle exclusively borrows the connection, so keep
+it within one synchronous operation. C's more flexible reservations can remain
+live while the session is driven; that Rust capability is still missing.
+
 The protocol crate also carries the descriptor, tabs, shortcut/reference and
 revision-4 launcher records, native file codecs and pure validation. This
 descriptor client role follows `spec/sophia-shell-files-v1.kdl` and

@@ -22,6 +22,11 @@ struct Frame {
     control: bool,
     ticket: u64,
 }
+pub(crate) struct PreparedQueue {
+    frames: Vec<Frame>,
+    bytes: usize,
+    control: bool,
+}
 impl ClientOutbox {
     pub(crate) fn enqueue(
         &mut self,
@@ -43,6 +48,19 @@ impl ClientOutbox {
         ledger: &mut Ledger,
         before_commit: impl FnOnce() -> Result<(), ShellClientError>,
     ) -> Result<Admission, ShellClientError> {
+        let prepared = self.prepare(frames, control, ledger)?;
+        before_commit()?;
+        Ok(self.commit(prepared, ledger))
+    }
+
+    /// The caller must exclusively retain this outbox and ledger until commit
+    /// or cancellation. All queue and ledger capacity is acquired here.
+    pub(crate) fn prepare(
+        &mut self,
+        frames: Vec<Vec<u8>>,
+        control: bool,
+        ledger: &mut Ledger,
+    ) -> Result<PreparedQueue, ShellClientError> {
         let bytes: usize = frames.iter().map(Vec::len).sum();
         if self.frames.len().saturating_add(frames.len()) > MAX_QUEUED_FRAMES
             || self.bytes.saturating_add(bytes) > MAX_QUEUED_BYTES
@@ -70,14 +88,23 @@ impl ClientOutbox {
         self.frames
             .try_reserve(records)
             .map_err(|_| ShellClientError::QueueSaturated)?;
-        before_commit()?;
-        self.frames.extend(prepared);
-        self.bytes += bytes;
-        if !control {
+        ledger.reserve(records)?;
+        Ok(PreparedQueue {
+            frames: prepared,
+            bytes,
+            control,
+        })
+    }
+
+    pub(crate) fn commit(&mut self, prepared: PreparedQueue, ledger: &mut Ledger) -> Admission {
+        let records = prepared.frames.len();
+        self.frames.extend(prepared.frames);
+        self.bytes += prepared.bytes;
+        if !prepared.control {
             self.bulk_records += records;
-            self.bulk_bytes += bytes;
+            self.bulk_bytes += prepared.bytes;
         }
-        Ok(ledger.issue(records))
+        ledger.issue(records)
     }
     pub(crate) fn front(&self) -> Option<&[u8]> {
         self.frames.front().and_then(|frame| frame.bytes.as_deref())

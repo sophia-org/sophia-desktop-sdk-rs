@@ -1,5 +1,108 @@
 use super::*;
 
+#[test]
+fn content_reservation_cancel_and_commit_issue_only_one_ticket_without_io() {
+    let (mut connection, mut peer) = connect(bar(0));
+    for _ in 0..3 {
+        let reservation = connection.reserve_content(tx(1), &demand(1)).unwrap();
+        peer.pump();
+        assert_eq!(peer.walk_count("transaction"), 0);
+        reservation.cancel();
+        assert_eq!(connection.custody(Ticket(1)), None);
+    }
+    drop(connection.reserve_content(tx(2), &demand(2)).unwrap());
+    let reservation = connection.reserve_content(tx(3), &demand(3)).unwrap();
+    let admission = reservation.commit();
+    assert_eq!(
+        admission,
+        Admission {
+            first: Ticket(1),
+            count: 1
+        }
+    );
+    assert_eq!(connection.custody(admission.first), Some(Custody::Queued));
+    peer.pump();
+    assert_eq!(peer.walk_count("transaction"), 0, "commit did socket I/O");
+    let record = commit(&mut connection, &mut peer, admission.first);
+    assert_eq!(kind_and_id(&record).0, ShellFileKind::FrameDemand);
+}
+
+#[test]
+fn content_reservation_refuses_capacity_and_invalid_groups_without_tickets() {
+    let (mut connection, mut peer) = connect(bar(0));
+    assert!(connection.reserve_content_group(tx(1), &[]).is_err());
+    let reservation = connection
+        .reserve_content_group(tx(2), &withdrawal())
+        .unwrap();
+    reservation.cancel();
+    let pending = fill_bulk(&mut connection);
+    assert!(matches!(
+        connection.reserve_content(tx(90), &demand(90)),
+        Err(ShellClientError::QueueSaturated)
+    ));
+    assert_eq!(connection.custody(Ticket(33)), None);
+    for ticket in pending {
+        commit(&mut connection, &mut peer, ticket);
+    }
+    let admission = connection
+        .reserve_content_group(tx(3), &withdrawal())
+        .unwrap()
+        .commit();
+    assert_eq!(admission.first, Ticket(33));
+    assert_eq!(admission.count, 1);
+    let record = commit(&mut connection, &mut peer, admission.first);
+    assert_eq!(
+        decode_shell_file_candidate(&record).unwrap().transaction,
+        tx(3)
+    );
+}
+
+#[test]
+fn cancelled_resource_reservations_do_not_consume_upload_slots() {
+    let (mut connection, mut peer) = connect(Profile {
+        limits_published: true,
+        ..bar(0)
+    });
+    let (_, limits) = next(&mut connection, &mut peer, ShellConnection::take_content);
+    assert!(matches!(limits, ShellContentRecord::Limits(_)));
+    let begin = ShellContentRecord::ResourceBegin(ContentResourceBegin {
+        grant: grant(),
+        resource: ContentResourceId {
+            id: 1,
+            generation: 1,
+        },
+        width_px: 4,
+        height_px: 4,
+        rendered_scale_numerator: 1,
+        rendered_scale_denominator: 1,
+        pixel_format: 1,
+        chunk_count: 1,
+        total_bytes: 64,
+    });
+    for _ in 0..16 {
+        drop(connection.reserve_content(tx(1), &begin).unwrap());
+    }
+    let admission = connection.reserve_content(tx(2), &begin).unwrap().commit();
+    assert_eq!(admission.first, Ticket(1));
+    let record = commit(&mut connection, &mut peer, admission.first);
+    assert_eq!(kind_and_id(&record).0, ShellFileKind::ResourceBegin);
+}
+
+#[test]
+fn reservation_does_not_promise_custody_after_peer_disconnect() {
+    let (mut connection, mut peer) = connect(bar(0));
+    let reservation = connection.reserve_content(tx(1), &demand(1)).unwrap();
+    peer.close();
+    let admission = reservation.commit();
+    assert_eq!(connection.custody(admission.first), Some(Custody::Queued));
+    let _ = connection.poll_io();
+    assert_eq!(
+        connection.custody(admission.first),
+        Some(Custody::DroppedUnsent)
+    );
+    assert!(connection.reserve_content(tx(2), &demand(2)).is_err());
+}
+
 fn withdrawal() -> [ShellContentRecord; 2] {
     [
         ShellContentRecord::CandidateBegin(ContentCandidateBegin {

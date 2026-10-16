@@ -73,6 +73,14 @@ impl Default for Ledger {
 }
 
 impl Ledger {
+    /// Acquire storage before an application commits its local side effect.
+    pub(crate) fn reserve(&mut self, count: usize) -> Result<(), crate::ShellClientError> {
+        let needed = self.recent.len().saturating_add(count).min(LEDGER_CAPACITY);
+        self.recent
+            .try_reserve(needed - self.recent.len())
+            .map_err(|_| crate::ShellClientError::QueueSaturated)
+    }
+
     /// Issues `count` consecutive tickets, all `Queued`.
     pub(crate) fn issue(&mut self, count: usize) -> Admission {
         let first = self.next;

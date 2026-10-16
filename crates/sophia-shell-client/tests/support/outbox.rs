@@ -2,6 +2,32 @@ use super::*;
 use crate::custody::{Admission, Ledger, Ticket};
 
 #[test]
+fn preparation_acquires_capacity_without_queueing_or_spending_tickets() {
+    let mut outbox = ClientOutbox::default();
+    let mut ledger = Ledger::default();
+    let prepared = outbox
+        .prepare(vec![vec![1; 10], vec![2; 20]], true, &mut ledger)
+        .unwrap();
+    let capacity = outbox.frames.capacity();
+    let payload = prepared.frames[0].bytes.as_ref().unwrap().as_ptr();
+    assert!(capacity >= 2);
+    assert!(outbox.front().is_none());
+    assert_eq!(ledger.peek(), 1);
+    let admission = outbox.commit(prepared, &mut ledger);
+    assert_eq!(
+        admission,
+        Admission {
+            first: Ticket(1),
+            count: 2
+        }
+    );
+    assert_eq!(outbox.frames.capacity(), capacity);
+    assert_eq!(outbox.front().unwrap().as_ptr(), payload);
+    assert_eq!(outbox.bytes, 30);
+    assert_eq!(ledger.get(Ticket(2)), Some(crate::Custody::Queued));
+}
+
+#[test]
 fn moving_payload_keeps_its_ticket_and_all_admission_charges_until_retirement() {
     let mut outbox = ClientOutbox::default();
     let mut ledger = Ledger::default();

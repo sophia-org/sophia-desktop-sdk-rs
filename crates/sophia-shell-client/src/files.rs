@@ -662,6 +662,12 @@ impl FileWire {
         }
     }
 
+    pub(crate) fn reserve_encoded(&mut self) -> Result<(), ShellClientError> {
+        self.pending
+            .try_reserve(self.staged.len())
+            .map_err(|_| ShellClientError::QueueSaturated)
+    }
+
     pub(crate) fn commit_encoded(&mut self) {
         self.service_pending |= !self.staged.is_empty();
         if let Some((slot, resource)) = self.staged_begin.take() {
@@ -671,5 +677,10 @@ impl FileWire {
             });
         }
         self.pending.extend(self.staged.drain(..));
+    }
+
+    pub(crate) fn cancel_encoded(&mut self) {
+        self.staged.clear();
+        self.staged_begin = None;
     }
 }

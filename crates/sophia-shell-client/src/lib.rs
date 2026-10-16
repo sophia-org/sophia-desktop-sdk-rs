@@ -110,6 +110,50 @@ pub struct ShellConnection {
     ledger: custody::Ledger,
 }
 
+/// Validated content whose local admission capacity is held exclusively.
+/// No ticket is issued and nothing is sent until `commit`. Drop or `cancel`
+/// discards it. The connection cannot be driven or used for another admission
+/// while this handle exists. It reserves local capacity, not server acceptance.
+///
+/// ```compile_fail
+/// use sophia_shell_client::ShellConnection;
+/// use sophia_shell_protocol::{ShellContentRecord, TransactionId};
+/// fn cannot_drive(connection: &mut ShellConnection, tx: TransactionId, record: &ShellContentRecord) {
+///     let reservation = connection.reserve_content(tx, record).unwrap();
+///     connection.poll_io().unwrap(); // the reservation exclusively borrows it
+///     reservation.commit();
+/// }
+/// ```
+#[must_use = "commit the prepared content, or drop it to cancel"]
+pub struct ContentReservation<'a> {
+    connection: &'a mut ShellConnection,
+    prepared: Option<outbox::PreparedQueue>,
+}
+
+impl ContentReservation<'_> {
+    /// Admit all prepared units with no I/O, allocation or capacity failure.
+    /// Tickets begin in `Queued`; later disconnects can still leave them unsent
+    /// or with unknown custody. This does not establish semantic acceptance.
+    pub fn commit(mut self) -> Admission {
+        let prepared = self.prepared.take().expect("reservation consumed once");
+        let admission = self
+            .connection
+            .output
+            .commit(prepared, &mut self.connection.ledger);
+        self.connection.wire.commit_encoded();
+        admission
+    }
+
+    /// Release the prepared content without admitting it or issuing tickets.
+    pub fn cancel(self) {}
+}
+
+impl Drop for ContentReservation<'_> {
+    fn drop(&mut self) {
+        self.connection.wire.cancel_encoded();
+    }
+}
+
 impl ShellConnection {
     /// Continue on the exact role pipeline/root returned by launch
     /// authentication, without Tversion or another attach. Takes exclusive
@@ -212,6 +256,48 @@ impl ShellConnection {
         let outbound = Outbound::Content(transaction, record.clone());
         let control = outbound.is_control();
         self.admit(outbound, control)
+    }
+
+    /// Validate and reserve one content operation before a local side effect.
+    /// The record is copied; no borrow of application data survives. Commit
+    /// consumes the handle; dropping it cancels. Failed or cancelled preparation
+    /// issues no custody tickets, though internal submission IDs may be skipped.
+    pub fn reserve_content(
+        &mut self,
+        transaction: TransactionId,
+        record: &ShellContentRecord,
+    ) -> Result<ContentReservation<'_>, ShellClientError> {
+        let outbound = Outbound::Content(transaction, record.clone());
+        let control = outbound.is_control();
+        self.reserve_outbound(outbound, control)
+    }
+
+    /// Prepare a whole content candidate atomically, as for
+    /// `enqueue_content_group_tracked`. This does not register lifecycle
+    /// metadata; use `enqueue_candidate_tracked` when that is required.
+    pub fn reserve_content_group(
+        &mut self,
+        transaction: TransactionId,
+        records: &[ShellContentRecord],
+    ) -> Result<ContentReservation<'_>, ShellClientError> {
+        self.reserve_outbound(Outbound::ContentGroup(transaction, records.to_vec()), false)
+    }
+
+    fn reserve_outbound(
+        &mut self,
+        outbound: Outbound,
+        control: bool,
+    ) -> Result<ContentReservation<'_>, ShellClientError> {
+        if self.wire.peer_closed() {
+            return Err(ShellClientError::PeerClosed);
+        }
+        let units = self.wire.encode(outbound)?;
+        self.wire.reserve_encoded()?;
+        let prepared = self.output.prepare(units, control, &mut self.ledger)?;
+        Ok(ContentReservation {
+            connection: self,
+            prepared: Some(prepared),
+        })
     }
 
     /// Encodes one outbound unit and admits all of its wire units, or none.
