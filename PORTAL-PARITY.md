@@ -1,6 +1,6 @@
 # Portal SDK parity
 
-Revision 4, 2026-10-16. Recipient components are developing; there is no complete
+Revision 5, 2026-10-16. Recipient components are developing; there is no complete
 portal client or parity claim.
 
 The unchanged recipient contract in `spec/portal-client-files.md` comes from
@@ -57,3 +57,19 @@ all three files, fragmentation, EOF/clunk barriers, overflow, malformed EOF,
 short iounit, refusal, expiry and clock regression. Three Rust component tests,
 C's snapshot test and strict Rust Clippy pass. They do not authenticate or own
 the connection; startup, frame streaming and production gates remain.
+
+Metadata startup now accepts the sole attached root on a quiescent role
+pipeline, fetches api through EOF/clunk and returns the same root and pipeline.
+The caller must supply the root from completed launch authentication and keep
+the relay alive separately; root ownership is checked but proves no authority.
+No version, attach or reconnect occurs. One caller-monotonic deadline covers
+startup. Rust shares a bounded I/O budget; C services its pipeline once per
+dispatch. Failure drops Rust's role pipeline; C requires its caller to close it.
+C startup state must not move because its fetch borrows inline scratch.
+
+Independent socket peers pass one-byte dispatch, retained-root handoff, invalid
+root, unsupported api version, directory replies, clunk refusal and expiry.
+Five Rust client tests, C's startup test and strict Rust Clippy pass. Their
+scripted initial attach stands in for completed authentication; these tests do
+not qualify the real launch exchange. Authentication composition, recipient
+session operations, retained frame reads and production gates remain.
