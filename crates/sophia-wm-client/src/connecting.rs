@@ -1,7 +1,11 @@
-use crate::{Session, SessionError, SessionState, startup::Opening};
-use sophia_9p_client::pipeline::{IoInterest, Pipeline, PipelineLimits, VersionHandshake};
+use crate::{
+    Obligations, Session, SessionError, SessionState, startup::Opening, submission::Custody,
+};
+use sophia_9p_client::pipeline::{
+    IoInterest, Pipeline, PipelineError, PipelineLimits, VersionHandshake,
+};
 use sophia_9p_records::Fid;
-use sophia_wm_protocol::wm_files::WmFileNegotiationOffer;
+use sophia_wm_protocol::wm_files::{WmFileLimits, WmFileNegotiationOffer};
 use std::os::{fd::BorrowedFd, unix::net::UnixStream};
 
 enum Phase {
@@ -62,6 +66,98 @@ impl Connecting {
     pub fn ready(&self) -> bool {
         self.error.is_none()
             && matches!(&self.phase,Some(Phase::Session(s)) if s.state()==SessionState::Ready)
+    }
+    pub fn error(&self) -> Option<&SessionError> {
+        self.error.as_ref()
+    }
+    pub fn state(&self) -> SessionState {
+        if let Some(Phase::Session(session)) = &self.phase {
+            return session.state();
+        }
+        if self.remote_error() == Some(116) {
+            return SessionState::Stale;
+        }
+        match &self.error {
+            None if self.phase.is_some() => SessionState::Negotiating,
+            None
+            | Some(
+                SessionError::Closed
+                | SessionError::Deadline
+                | SessionError::Wire(
+                    PipelineError::Timeout | PipelineError::Io(std::io::ErrorKind::UnexpectedEof),
+                )
+                | SessionError::Startup(
+                    crate::startup::Error::Deadline
+                    | crate::startup::Error::Closed
+                    | crate::startup::Error::Wire(
+                        PipelineError::Timeout
+                        | PipelineError::Io(std::io::ErrorKind::UnexpectedEof),
+                    ),
+                ),
+            ) => SessionState::Closed,
+            Some(_) => SessionState::Failed,
+        }
+    }
+    pub fn epoch(&self) -> Option<u64> {
+        match &self.phase {
+            Some(Phase::Files(f)) => f.epoch(),
+            Some(Phase::Session(s)) => Some(s.epoch()),
+            _ => None,
+        }
+    }
+    pub fn limits(&self) -> Option<WmFileLimits> {
+        match &self.phase {
+            Some(Phase::Files(f)) => f.limits(),
+            Some(Phase::Session(s)) => Some(s.limits()),
+            _ => None,
+        }
+    }
+    pub fn capabilities(&self) -> Option<u64> {
+        match &self.phase {
+            Some(Phase::Session(s)) => s.capabilities(),
+            _ => None,
+        }
+    }
+    pub fn remote_error(&self) -> Option<u32> {
+        if let Some(Phase::Session(s)) = &self.phase {
+            return s.remote_error();
+        }
+        match &self.error {
+            Some(SessionError::Wire(PipelineError::Remote(errno)))
+            | Some(SessionError::Startup(crate::startup::Error::Wire(PipelineError::Remote(
+                errno,
+            )))) => Some(errno.0),
+            Some(SessionError::Startup(crate::startup::Error::Remote(errno))) => Some(*errno),
+            _ => None,
+        }
+    }
+    /// Negotiation ticket results remain readable after startup failure or
+    /// close, until the ready Session is transferred out of this owner.
+    pub fn custody(&self, ticket: u64) -> Option<Custody> {
+        match &self.phase {
+            Some(Phase::Session(s)) => s.custody(ticket),
+            _ => None,
+        }
+    }
+    pub fn obligations(&self) -> Obligations {
+        if let Some(Phase::Session(s)) = &self.phase {
+            return s.obligations();
+        }
+        Obligations {
+            consumed: 0,
+            acked: 0,
+            submitted_sequence: 0,
+            deadline: if self.error.is_none() && self.phase.is_some() {
+                Some(self.deadline)
+            } else {
+                None
+            },
+            retry_at: None,
+            event_pending: false,
+            snapshot_pending: false,
+            snapshot_ready: false,
+            waiting_for_ack: false,
+        }
     }
     pub fn deadline(&self) -> u64 {
         self.deadline

@@ -153,6 +153,12 @@ impl Opening {
     pub fn deadline(&self) -> u64 {
         self.deadline
     }
+    pub(crate) fn epoch(&self) -> Option<u64> {
+        self.limits.map(|_| self.epoch)
+    }
+    pub(crate) fn limits(&self) -> Option<WmFileLimits> {
+        self.limits
+    }
     pub fn fd(&self) -> Option<BorrowedFd<'_>> {
         self.wire.as_ref().map(AsFd::as_fd)
     }

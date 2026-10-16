@@ -151,6 +151,7 @@ dependencies = [
 name = "sophia-wm-client"
 version = "0.3.0"
 dependencies = [
+ "rustix",
  "sophia-9p-client",
  "sophia-9p-records",
  "sophia-wm-protocol",

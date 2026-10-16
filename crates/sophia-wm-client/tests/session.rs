@@ -333,6 +333,12 @@ fn fixture(
         thread::yield_now();
     }
     assert!(opening.io_interest().unwrap().immediate);
+    assert_eq!(opening.state(), SessionState::Ready);
+    assert_eq!(opening.epoch(), Some(7));
+    assert_eq!(opening.capabilities(), Some(128));
+    assert_eq!(opening.limits().unwrap().capability_ceiling, 128);
+    assert_eq!(opening.custody(1), Some(Custody::Submitted));
+    assert!(opening.error().is_none());
     if snapshot == 12 {
         assert!(saw_retry_wake);
     }
