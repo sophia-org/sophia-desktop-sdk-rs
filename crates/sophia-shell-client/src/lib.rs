@@ -6,7 +6,7 @@
 
 mod batch;
 mod candidate;
-pub use batch::ContentBatchItem;
+pub use batch::{ContentBatchItem, ShellBatchItem};
 mod custody;
 pub use custody::{Admission, Custody, CustodyLookupError, Ticket};
 mod catalog;

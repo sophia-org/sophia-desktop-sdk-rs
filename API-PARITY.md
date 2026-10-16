@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 13, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 14, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -290,7 +290,31 @@ external edits cannot be replayed safely; C callbacks must return normally.
 Independent tests cover a declined edit's Stale ACK. Rust additionally tests both
 wire dispositions, full-queue suppression, uneditable input and caught panic;
 C's existing tests cover reserve-before-edit and repeated heads. Full Rust tests,
-strict Clippy and C tests pass; the native Rust suite now has 38 tests. Delayed
-native reservations, other non-content batches and configurable queues remain
-open.
+strict Clippy and C tests pass; the native Rust suite now has 38 tests. The general batch API below closes delayed non-content admission; configurable
+queue limits remain open.
 These gaps still block full t333 parity and production adoption.
+
+## General role batches and delayed admission
+
+Rust `ShellBatchItem` covers content records/whole candidates, native records
+and whole native candidates, descriptor records, indicator activations, whole
+catalog candidates and catalog activations. `enqueue_shell_batch`,
+`reserve_shell_batch` and `commit_reserved_shell_batch` match C's immediate
+`sophia_ss_submit` and delayed `sophia_ss_reserve`/`commit` across those records.
+A one-item batch supplies delayed single-record admission. Prepared Drop cancels;
+delayed validation/size failure preserves credits. Local admission is all-or-none,
+with a ticket and independent remote outcome per item. Input is copied.
+
+Mixed batches use bulk credits; all-control batches use control headroom.
+Native and catalog negotiation checks still apply. Catalog candidates retain
+their whole-record validation and chunk limit. These lower-level operations do
+not register lifecycle state or prove eligibility/response correlation; use the
+role helpers for those checks. A batch does not turn server effects into one
+atomic transaction. C has the same caller responsibility for raw submissions.
+
+New Rust controls cover delayed native pairs, prepared cancellation, retained
+credits after invalid direction/size, descriptor pairs, catalog role rejection,
+and whole catalog/activation records. C independently submits a delayed
+descriptor pair through its real session peer. Full Rust workspace tests,
+strict Clippy and C's full suite pass. Existing content batch controls still
+cover staged upload rollback. Production-export qualification is pending.

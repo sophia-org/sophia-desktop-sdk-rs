@@ -17,6 +17,76 @@ mod lifecycle;
 mod session;
 
 #[test]
+fn delayed_native_batch_keeps_credits_on_error_and_submits_both_records() {
+    let (mut c, mut p) = ready();
+    let token = c.reserve_capacity(2, 4096).unwrap();
+    c.dispatch(Instant::now(), 0).unwrap();
+    let invalid = record(ShellNativeLauncherRecord::Focus(binding()));
+    assert!(
+        c.commit_reserved_shell_batch(&token, &[ShellBatchItem::Native(&invalid)])
+            .is_err()
+    );
+    let activate = ShellFileNativeLauncherRecord {
+        transaction: tx(50),
+        record: ShellNativeLauncherRecord::Activate(activation()),
+    };
+    let ack = ShellFileNativeLauncherRecord {
+        transaction: tx(51),
+        record: ShellNativeLauncherRecord::InputAck(ack()),
+    };
+    let a = c
+        .commit_reserved_shell_batch(
+            &token,
+            &[
+                ShellBatchItem::Native(&activate),
+                ShellBatchItem::Native(&ack),
+            ],
+        )
+        .unwrap();
+    assert_eq!(a.first, Ticket(1));
+    assert_eq!(a.count, 2);
+    assert!(c.cancel_reservation(&token).is_err());
+    assert_eq!(
+        decode_shell_file_native_launcher_transaction(
+            &commit(&mut c, &mut p, a.first),
+            ShellFileKind::NativeActivate
+        )
+        .unwrap(),
+        activate
+    );
+    assert_eq!(
+        decode_shell_file_native_launcher_transaction(
+            &commit(&mut c, &mut p, Ticket(2)),
+            ShellFileKind::NativeInputAck
+        )
+        .unwrap(),
+        ack
+    );
+}
+
+#[test]
+fn native_prepared_batch_drop_and_delayed_size_failure_admit_nothing() {
+    let (mut c, mut p) = ready();
+    let ack = record(ShellNativeLauncherRecord::InputAck(ack()));
+    drop(
+        c.reserve_shell_batch(&[ShellBatchItem::Native(&ack)])
+            .unwrap(),
+    );
+    let token = c.reserve_capacity(1, 1).unwrap();
+    assert!(
+        c.commit_reserved_shell_batch(&token, &[ShellBatchItem::Native(&ack)])
+            .is_err()
+    );
+    c.cancel_reservation(&token).unwrap();
+    let a = c
+        .enqueue_shell_batch(&[ShellBatchItem::Native(&ack)])
+        .unwrap();
+    assert_eq!(a.first, Ticket(1));
+    commit(&mut c, &mut p, a.first);
+    assert_eq!(p.transactions.len(), 1);
+}
+
+#[test]
 fn allocation_and_whole_native_candidate_reach_submitted() {
     let (mut c, mut p) = ready();
     let b = binding();

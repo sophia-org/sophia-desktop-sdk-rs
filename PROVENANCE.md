@@ -1,5 +1,15 @@
 # Provenance
 
+## t333 general role batches
+
+`ShellBatchItem` extends immediate, prepared and serviceable delayed admission
+to native/descriptor/indicator/catalog operations as well as content. Tests
+cover native response pairs, cancelled preparation, retained credits after
+validation/size failure, delayed descriptor pairs and catalog role/record checks.
+C independently exercises a delayed descriptor pair. Full workspace tests,
+strict Clippy and C's full suite pass. Matrix 14 distinguishes raw submission
+from lifecycle eligibility and keeps production-export qualification pending.
+
 ## t333 presentation access and input edit convenience
 
 `presented` exposes borrowed presentation metadata and row slots, separately

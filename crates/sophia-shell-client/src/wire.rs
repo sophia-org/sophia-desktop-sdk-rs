@@ -10,6 +10,7 @@ use sophia_shell_protocol::{
 /// One whole client-to-session unit. Named for what it means, never for how
 /// many frames a wire needs to carry it.
 pub(crate) enum Outbound {
+    CatalogActivation(TransactionId, CatalogActivation),
     NativeActionResponse {
         transaction: TransactionId,
         ack: ContentActionAck,
@@ -76,7 +77,7 @@ impl Outbound {
             Outbound::ContentGroup(..)
             | Outbound::IndicatorActivation(..)
             | Outbound::CatalogCandidateGroup { .. } => false,
-            Outbound::ActionResponse { .. } | Outbound::CatalogActionResponse { .. } => true,
+            Outbound::ActionResponse { .. } | Outbound::CatalogActionResponse { .. } | Outbound::CatalogActivation(..) => true,
         }
     }
 }

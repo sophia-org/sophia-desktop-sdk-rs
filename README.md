@@ -55,6 +55,12 @@ For several content operations, build `ContentBatchItem::Record` and
 ticket per item. The server still accepts or refuses each operation separately;
 one accepted batch is not an atomic server transaction.
 
+`ShellBatchItem` extends those forms to native, descriptor, indicator and catalog
+operations through `enqueue_shell_batch`, `reserve_shell_batch` and
+`commit_reserved_shell_batch`. It validates records and role support but does not
+register lifecycle state or prove action eligibility. Use role helpers for
+those checks. A one-item batch provides delayed single-record admission.
+
 Use `custody_result(ticket)` to distinguish retained custody from
 `CustodyLookupError::Unavailable` (evicted history) and `Unissued`. The existing
 `custody` method still returns `None` for both lookup failures. Tickets must

@@ -1967,3 +1967,71 @@ fn failed_or_partial_writer_setup_never_sends_payload() {
         assert!(peer.submits.is_empty());
     }
 }
+
+#[test]
+fn delayed_catalog_candidate_preserves_role_and_whole_record_checks() {
+    let (mut c, mut p) = connect(dock());
+    let begin = CatalogCandidateBegin {
+        content: ContentCandidateBegin {
+            grant: grant(),
+            output: output(),
+            candidate_generation: 1,
+            facts_generation: 1,
+            pacing_permit: 1,
+            interaction_generation: 1,
+            surface_count: 0,
+            placement_count: 0,
+            target_count: 0,
+        },
+        catalog_generation: 9,
+    };
+    let end = ContentCandidateEnd {
+        grant: grant(),
+        candidate_generation: 1,
+        surface_count: 0,
+        placement_count: 0,
+        target_count: 0,
+    };
+    let item = ShellBatchItem::CatalogCandidate {
+        transaction: tx(20),
+        begin: &begin,
+        chunks: &[],
+        end: &end,
+    };
+    let token = c.reserve_capacity(1, 4096).unwrap();
+    let a = c.commit_reserved_shell_batch(&token, &[item]).unwrap();
+    let decoded = decode_shell_file_catalog_candidate(&commit(&mut c, &mut p, a.first)).unwrap();
+    assert_eq!(decoded.candidate.catalog_generation, 9);
+    assert_eq!(decoded.transaction, tx(20));
+    let (mut wrong, _p) = connect(bar(0));
+    assert!(matches!(
+        wrong.enqueue_shell_batch(&[item]),
+        Err(ShellClientError::MissingCapability)
+    ));
+}
+
+#[test]
+fn general_catalog_batch_preserves_ack_and_activation_order() {
+    let (mut c, mut p) = connect(dock());
+    let activation = CatalogActivation {
+        action: action(),
+        catalog_generation: 9,
+    };
+    let ack = ShellContentRecord::ActionAck(ack(&action()));
+    let items = [
+        ShellBatchItem::Content(ContentBatchItem::Record(tx(70), &ack)),
+        ShellBatchItem::CatalogActivation(tx(71), &activation),
+    ];
+    let token = c.reserve_capacity(2, 4096).unwrap();
+    let a = c.commit_reserved_shell_batch(&token, &items).unwrap();
+    let first = commit(&mut c, &mut p, a.first);
+    assert_eq!(kind_and_id(&first).0, ShellFileKind::ActionAck);
+    let second = commit(&mut c, &mut p, Ticket(a.first.0 + 1));
+    assert_eq!(
+        decode_shell_file_catalog_action(&second, ShellFileKind::CatalogActivate).unwrap(),
+        ShellFileCatalogActionRecord {
+            transaction: tx(71),
+            record: ShellCatalogActionRecord::Activate(activation),
+        }
+    );
+}

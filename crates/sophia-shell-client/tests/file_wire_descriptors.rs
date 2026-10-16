@@ -799,3 +799,40 @@ fn malformed_snapshot_never_releases_its_ack_hold() {
         assert!(p.acks.iter().all(|a| a.sequence < 3));
     }
 }
+
+#[test]
+fn descriptor_pair_uses_delayed_atomic_admission() {
+    let (mut c, mut p) = connect(METADATA);
+    p.reset_logs();
+    let values: Vec<_> = candidates()
+        .into_iter()
+        .take(2)
+        .enumerate()
+        .map(|(i, record)| ShellFileDescriptorRecord {
+            transaction: TransactionId::from_raw(100 + i as u64),
+            record,
+        })
+        .collect();
+    let items: Vec<_> = values.iter().map(ShellBatchItem::Descriptor).collect();
+    let token = c.reserve_capacity(2, 8192).unwrap();
+    c.dispatch(Instant::now(), 0).unwrap();
+    let a = c.commit_reserved_shell_batch(&token, &items).unwrap();
+    assert_eq!(a.count, 2);
+    for (i, value) in values.iter().enumerate() {
+        let kind = shell_file_descriptor_kind(&value.record);
+        drive(&mut c, &mut p, |_, p| !p.submits.is_empty()).unwrap();
+        let held = p.submits.pop_front().unwrap();
+        let submit = decode_shell_file_submit(&held.data).unwrap();
+        assert_eq!(
+            decode_shell_file_descriptor(p.transactions.last().unwrap(), kind).unwrap(),
+            *value
+        );
+        p.answer_write(held.tag, held.data.len() as u32);
+        let event = p.submitted(submit.submission_id, kind);
+        p.push(event);
+        drive(&mut c, &mut p, |c, _| {
+            c.custody(Ticket(a.first.0 + i as u64)) == Some(Custody::Submitted)
+        })
+        .unwrap();
+    }
+}

@@ -423,7 +423,9 @@ impl FileWire {
         if self.descriptor
             && (matches!(
                 &outbound,
-                Outbound::CatalogCandidateGroup { .. } | Outbound::CatalogActionResponse { .. }
+                Outbound::CatalogCandidateGroup { .. }
+                    | Outbound::CatalogActionResponse { .. }
+                    | Outbound::CatalogActivation(..)
             ) || (!matches!(
                 &outbound,
                 Outbound::Descriptor(_) | Outbound::IndicatorActivation(..)
@@ -434,6 +436,17 @@ impl FileWire {
             return Err(ShellClientError::MissingCapability);
         }
         match outbound {
+            Outbound::CatalogActivation(transaction, activation) => {
+                let header = self.next_header(ShellFileKind::CatalogActivate);
+                let bytes = encode_shell_file_catalog_action(
+                    header,
+                    &ShellFileCatalogActionRecord {
+                        transaction,
+                        record: ShellCatalogActionRecord::Activate(activation),
+                    },
+                )?;
+                Ok(self.stage_records(vec![bytes]))
+            }
             Outbound::NativeActionResponse {
                 transaction,
                 ack,
