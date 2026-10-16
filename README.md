@@ -14,19 +14,27 @@ Sophia checkout to build.
 | `sophia-shell-protocol` | The shell's typed records and the `sophia_shell_fs_v1` file contract codec. |
 | `sophia-shell-client` | The shell client over the file contract. |
 | `sophia-wm-protocol` | The WM file codecs and passive policy records; no session client yet. |
-| `sophia-wm-client` | Typed, immutable candidates and bounded file startup; session implementation in progress. |
+| `sophia-wm-client` | Developing WM session with negotiation, events and custody; snapshot fetching remains missing. |
 | `sophia-lock-protocol` | The lock provider's `sophia_lock_fs_v1` file contract codec (experimental; see Contracts). |
 
-The shell role is the only one with a full role client here. The lock provider role has
-an experimental codec and no client. WM and output file contracts and C clients
-already exist, but their Rust clients are missing. Administration also lacks a
-Rust client. [API parity](API-PARITY.md) records the current comparison and gaps.
+The shell role is the only one with a full role client here. The lock provider
+has an experimental codec and no client. WM has a developing Rust client;
+output has a contract and C client but no Rust client. Administration also lacks
+a Rust client. [API parity](API-PARITY.md) records the comparison and gaps.
 
 The WM protocol crate includes negotiation, profile handoff, snapshots,
 configuration, projection, Cycle events and outcome records. Its schema and
 golden corpus match the C SDK's pinned contract. Encoding a valid record does
 not establish custody or a committed scene; those require the pending session
-client and production-export qualification.
+client's remaining operations and production-export qualification.
+
+The developing WM `Session` takes the pipeline and fids returned by `Opening`.
+Drive it with monotonic milliseconds and a byte budget; inspect socket interests
+and the wake deadline before sleeping. `event` retains one application head
+until `consume`. `submit` returns a local custody ticket; `custody` distinguishes
+Submitted from refusal and uncertain disconnect. Submitted does not establish
+scene commit. This interface still lacks Cycle-bound snapshot fetching and
+has not passed production-export qualification.
 
 For an external level-triggered event loop, `ShellConnection` implements
 `AsFd` and exposes `io_interest()` alongside `wake_deadline()`. Drive `poll_io`

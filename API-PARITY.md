@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 21, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 22, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -449,3 +449,14 @@ All 30 WM client tests and strict Clippy pass. C's counterpart remains
 `wm_session/submission.c`. The Rust operation driver must still connect this
 state machine to actual pipeline tags, ordered reply draining and terminal
 handling; scripted session/export qualification is not yet established.
+
+Rust `Session` now joins startup, journal and submission on the actual 9P
+pipeline. It owns request tags, processes journal replies before submission
+replies, preserves final custody on EOF, services ACKs and exposes readiness,
+deadlines, retained events, domain allocation and close. One dispatch shares
+its budget across bounded rounds. Unix-socket peers exercise startup through
+negotiation and application submission, both reply orders, EAGAIN, ACK barriers
+and EOF after Submitted. All 32 WM client tests and strict Clippy pass.
+This closes the driver connection gap above, not WM parity: snapshot fetching,
+direct nonblocking version startup, handoff-capacity validation and complete
+paired production-export qualification remain. C's existing driver is unchanged.
