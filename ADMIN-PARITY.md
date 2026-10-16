@@ -1,6 +1,6 @@
 # Administrative SDK parity
 
-Revision 11, 2026-10-16. Both SDKs now have developing administrative sessions
+Revision 12, 2026-10-16. Both SDKs now have developing administrative sessions
 and caller-connected socket facades. Qualification remains t333 work.
 
 The pinned file contract is copied unchanged from Sophia
@@ -183,3 +183,13 @@ owner observes cancellation only for the unclaimed ticket; a claimed ticket
 remains dispatched and can finish after the client exits. This is orderly
 service teardown, not an abrupt process crash. Explicit recovery on a replacement
 service and remaining process-loss/negative-case coverage are still open.
+
+Both peers now pass explicit recovery on a replacement production service.
+They retain the old uncertain command, wait for an explicit new endpoint,
+discover a different service identity and invoke a newly advertised probe
+command. The replacement deliberately reuses the old connection/request numbers.
+The old ticket's late Committed result does not settle the probe; only the new
+owner's Rejected result does. The old command remains uncertain throughout.
+No uncertain mutation is replayed. All three production SDK tests pass for
+each peer. Abrupt process death and remaining integrated negative schedules
+remain separate qualification work.

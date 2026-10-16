@@ -55,7 +55,9 @@ fn main() {
     let args: Vec<_> = std::env::args_os().collect();
     let path = &args[1];
     let report = &args[2];
-    assert!(args[3] == "settle" || args[3] == "revoke" || args[3] == "loss");
+    assert!(
+        args[3] == "settle" || args[3] == "revoke" || args[3] == "loss" || args[3] == "recover"
+    );
     let expect_loss = args[3] != "settle";
     let clock = Clock(Instant::now());
     let mut connecting = Connecting::new(
@@ -88,6 +90,48 @@ fn main() {
         assert_eq!(s.latest_custody(), Some((1, Custody::Unknown)));
         assert!(s.fd().is_none());
         assert!(s.invoke(command, clock.now()).is_err());
+        if args[3] == "recover" {
+            let prior_info = s.info();
+            std::fs::write(report, b"lost\n").unwrap();
+            let path = loop {
+                let text = std::fs::read_to_string(report).unwrap();
+                if let Some(path) = text
+                    .strip_prefix("recover ")
+                    .and_then(|p| p.strip_suffix('\n'))
+                {
+                    break path.to_owned();
+                }
+                clock.now();
+                std::thread::sleep(Duration::from_millis(1));
+            };
+            let now = clock.now();
+            let mut c = Connecting::new(
+                UnixStream::connect(path).unwrap(),
+                PipelineLimits::default(),
+                now,
+                now + 2000,
+            )
+            .unwrap();
+            while !c.ready() {
+                clock.wait(c.fd().unwrap(), c.io_interest().unwrap(), c.next_wake());
+                c.dispatch(clock.now(), 65536).unwrap();
+            }
+            let mut fresh = c.take_session().unwrap();
+            assert_ne!(
+                (prior_info.session_low, prior_info.session_high),
+                (fresh.info().session_low, fresh.info().session_high)
+            );
+            assert_eq!(fresh.catalog_generation(), Some(9));
+            let probe = Command {
+                owner: Owner::Policy,
+                name: "probe",
+            };
+            assert!(fresh.commands().any(|c| c == probe));
+            assert_eq!(fresh.invoke(probe, clock.now()).unwrap(), 1);
+            clock.outcome(&mut fresh, 1, Outcome::Rejected);
+            assert_eq!(s.latest_custody(), Some((1, Custody::Unknown)));
+            fresh.close();
+        }
     } else {
         clock.outcome(&mut s, 1, Outcome::Committed);
         std::fs::write(report, b"first\n").unwrap();

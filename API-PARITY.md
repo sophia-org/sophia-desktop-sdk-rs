@@ -597,3 +597,6 @@ qualification remain open.
 
 Admin map 11 adds paired production service teardown before and after owner
 claim, preserving client uncertainty and the server's queued/dispatched boundary.
+
+Admin map 12 adds explicit fresh-service recovery with a different command,
+preserved old uncertainty and isolation from an old ticket's late completion.
