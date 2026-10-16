@@ -571,3 +571,7 @@ Catalog and administrative session support remain missing in both SDKs.
 Admin map 4 adds bounded, allocation-free complete catalog decoding and
 binary-search membership lookup in both SDKs. Administrative session support
 and its production gates remain missing.
+
+Admin map 5 adds matched-reply snapshot state machines in both SDKs, with
+reusable storage and EOF/clunk barriers. The full administrative connection
+driver and its production qualification remain missing.

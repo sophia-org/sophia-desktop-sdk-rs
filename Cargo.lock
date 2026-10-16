@@ -104,6 +104,15 @@ name = "sophia-9p-records"
 version = "0.3.0"
 
 [[package]]
+name = "sophia-admin-client"
+version = "0.3.0"
+dependencies = [
+ "sophia-9p-client",
+ "sophia-9p-records",
+ "sophia-admin-protocol",
+]
+
+[[package]]
 name = "sophia-admin-protocol"
 version = "0.3.0"
 

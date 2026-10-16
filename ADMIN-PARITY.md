@@ -1,6 +1,6 @@
 # Administrative SDK parity
 
-Revision 4, 2026-10-16. Neither SDK yet provides the typed administrative
+Revision 5, 2026-10-16. Neither SDK yet provides the typed administrative
 client. This is required t333 work, not an unsupported-role waiver.
 
 The pinned file contract is copied unchanged from Sophia
@@ -63,3 +63,20 @@ Catalog tests cover all 259 commands, every truncated prefix of a literal
 two-row snapshot, the 256-policy boundary, 128-byte names, malformed snapshots,
 borrowed names and lookup. The external-loop clients and paired production
 gates remain; no performance measurement or client parity is claimed.
+
+The provisional snapshot components now produce Walk/Open/Read/Clunk operations
+for info, commands and status on an existing connection. Reads respect msize,
+iounit and file bounds, including a one-byte EOF probe at the bound. Results
+remain unavailable until EOF, syntax validation and clunk succeed. Deadlines
+are absolute caller-monotonic times; clock regression changes no state. Remote
+refusal, invalid replies and expiry require the connection driver to close,
+without automatic retry or reconnect.
+
+Rust accepts reusable Vec storage, reserves the file bound once and returns
+that storage without copying. C uses caller storage of at least the file bound.
+Raw scratch bytes are not validated results. Three Rust component tests and
+C's independent snapshot test cover fragmented reads of all three files,
+storage identity, EOF/clunk barriers, malformed EOF, overflow, oversized replies,
+clunk refusal, EAGAIN refusal, deadline and clock regression. Strict Clippy
+passes. These tests supply matched replies; connection/tag ownership, readiness,
+bounded dispatch, startup, invocation custody and production gates remain.
