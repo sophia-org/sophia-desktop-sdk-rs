@@ -1,8 +1,8 @@
 # Experimental lock SDK parity
 
-Revision 3, 2026-10-16. The pinned lock file contract remains draft.
-C reference: `cce3196`, `src/sophia_lock_client.h` and `src/lock_files/client*.c`.
-Rust `sophia-lock-client` has preparation, provisional startup and submission;
+Revision 4, 2026-10-16. The pinned lock file contract remains draft.
+C reference: `b383726`, `src/sophia_lock_client.h` and `src/lock_files/*.c`.
+Rust `sophia-lock-client` has preparation, startup, submission, journal and fetch;
 it is not yet a usable lock session.
 
 | Capability | Rust status / remaining work |
@@ -11,8 +11,8 @@ it is not yet a usable lock session.
 | Direct/attached startup | Provisional `Opening` on a versioned pipeline. Checks exact API epoch, matching Limits, four fixed streams and admitted-root handoff. Nonblocking version facade/session integration remains. |
 | Negotiation | Local offer checks match C: Present required, known bits, chords require Chords, valid revision range. Server decides unsupported revision and semantic chord refusal. Welcome/refusal handling remains. |
 | Submission and custody | Provisional bounded lane: one immutable submission, explicit EAGAIN retry, cumulative Submitted ACK barrier and latest-result inspection. Clunk/walk after settlement; reopen after ACK. Session integration remains. |
-| Journal | Missing. Retained ordered events, internal controls, character-free Entry and granted Chord validation. |
-| Lock object | Missing. Exact publication/Qid/generation through EOF; consume superseded announcements internally. This differs from output topology fetching. |
+| Journal | Provisional fixed 1024-byte buffer, retained ordered heads, internal controls, character-free Entry and granted Chord validation. Decode stops at a held head, including controls behind it. Session integration remains. |
+| Lock object | Provisional exact Qid/epoch fetch through EOF and clunk, bound to the announced generation. Newer Qid supersedes the announcement, consumed internally without reading. Session integration remains. |
 | Upload | Missing. Begin/admission, slot open, borrowed or owned chunk lifetime, end/cancel/retire, resource events and recovery. |
 | Upload window | Missing. C supports 1–8 writes with five control slots reserved; drain outstanding writes before cancellation. Pipelined short writes cancel, single-write mode can continue. |
 | Event loop | Missing. C service has no internal clock; retry is explicit. Match capabilities without adding polling or hidden clock overhead. |
@@ -48,4 +48,21 @@ C has an independent socket regression. Never replay a confirmed submission.
 The Rust lane borrows bounded write slices from fixed storage and adds no clocks
 or polling. Its body preparation still allocates temporarily. No measured runtime
 gain is claimed. Fourteen Rust lock-client tests and strict Clippy pass.
-Session negotiation, journal/object handling and uploads remain unimplemented.
+Session integration and uploads remain unimplemented.
+
+Six journal tests cover fragmented records, retained heads, all event kinds,
+grants/refusal, malformed prefixes, publication barriers and bounded compaction.
+Four fetch tests cover fragmented reads, EOF/clunk before exposure, newer Qids
+at walk or open, older Qids, bad epoch, premature EOF, trailing bytes, oversized
+replies and remote errors. C independently covers ordered Entry/Chord delivery,
+supersession, refusal ACKs and invalid grants; its fetch regressions now also
+reject bad epoch, trailing bytes, premature EOF and an older Qid.
+
+Rust journal assembly and object byte storage use fixed 1024-byte arrays, matching
+C's bounds. The journal advances a cursor and compacts only when an append needs
+tail space; C moves unread bytes when consuming a head. This is an internal
+implementation difference, not a measured performance result. Object decoding
+still allocates its bounded allocation list; the verified object transfers by
+ownership without cloning. Neither component adds timers, retries or polling.
+All 24 Rust lock-client tests and strict Clippy pass. These component tests do
+not establish integrated session or production-export parity.
