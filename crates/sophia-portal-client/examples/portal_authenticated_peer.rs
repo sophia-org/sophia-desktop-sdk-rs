@@ -78,6 +78,82 @@ fn main() {
     );
     assert!(opened.info.epoch > 0 && opened.pipeline.fid_count() == 1);
     assert!(opened.pipeline.is_quiescent());
+    if mode.starts_with("sdk-watch") {
+        let absent = mode == "sdk-watch-absent";
+        let cancel = mode == "sdk-watch-cancel";
+        let expire = mode == "sdk-watch-expire";
+        let now = start.elapsed().as_millis() as u64;
+        let mut watch = sophia_portal_client::watch::Watch::new(opened, now, now + 3000).unwrap();
+        let mut announced = false;
+        while !watch.revoked() && watch.error().is_none() {
+            assert!(Instant::now() < deadline);
+            let interest = watch.io_interest().unwrap();
+            let fd = watch.fd().unwrap();
+            let mut flags = rustix::event::PollFlags::IN;
+            if interest.writable {
+                flags |= rustix::event::PollFlags::OUT;
+            }
+            let mut fds = [rustix::event::PollFd::new(&fd, flags)];
+            let wait = Duration::from_millis(if interest.immediate {
+                0
+            } else {
+                watch
+                    .deadline()
+                    .unwrap()
+                    .saturating_sub(start.elapsed().as_millis() as u64)
+            });
+            rustix::event::poll(
+                &mut fds,
+                Some(&rustix::event::Timespec::try_from(wait).unwrap()),
+            )
+            .unwrap();
+            let result = watch.dispatch(start.elapsed().as_millis() as u64, 65536);
+            if !absent {
+                result.unwrap();
+            }
+            if !announced && watch.waiting() && !watch.io_interest().unwrap().writable {
+                assert!(!watch.revoked());
+                let report = std::env::var_os("SOPHIA_TEST_LOCK_REPORT").unwrap();
+                std::fs::write(&report, b"watch-ready\n").unwrap();
+                while std::fs::read_to_string(&report).unwrap() != "continue\n" {
+                    assert!(Instant::now() < deadline);
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                announced = true;
+                if cancel {
+                    watch.close();
+                }
+                if expire {
+                    assert_eq!(
+                        watch.dispatch(watch.deadline().unwrap(), 65536),
+                        Err(sophia_portal_client::watch::Error::Deadline)
+                    );
+                }
+            }
+        }
+        if absent || cancel || expire {
+            let expected = if absent {
+                sophia_portal_client::watch::Error::Remote(2)
+            } else if cancel {
+                sophia_portal_client::watch::Error::Closed
+            } else {
+                sophia_portal_client::watch::Error::Deadline
+            };
+            assert_eq!(watch.error(), Some(&expected));
+            assert!(!watch.revoked() && watch.fd().is_none());
+        } else {
+            assert!(announced && watch.revoked());
+            let role = watch.finish().unwrap();
+            assert_eq!(role.pipeline.fid_count(), 1);
+            assert!(role.pipeline.is_quiescent());
+        }
+        std::fs::write(
+            std::env::var_os("SOPHIA_TEST_LOCK_REPORT").unwrap(),
+            b"watch-done\n",
+        )
+        .unwrap();
+        return;
+    }
     if mode.starts_with("sdk-transfer") {
         let absent = mode == "sdk-transfer-absent";
         let revoked = mode == "sdk-transfer-revoke";

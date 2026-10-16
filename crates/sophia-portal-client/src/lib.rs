@@ -6,4 +6,5 @@ pub mod read_window;
 pub mod snapshot;
 pub mod startup;
 pub mod transfer;
+pub mod watch;
 pub use sophia_portal_protocol as protocol;

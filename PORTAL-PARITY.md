@@ -1,6 +1,6 @@
 # Portal SDK parity
 
-Revision 15, 2026-10-16. Recipient components are developing; there is no complete
+Revision 16, 2026-10-16. Recipient components are developing; there is no complete
 portal client or parity claim.
 
 The unchanged recipient contract in `spec/portal-client-files.md` comes from
@@ -239,3 +239,22 @@ portal gates, seventeen Rust component tests and strict Clippy pass. The
 production payload is seven supplied bytes; the 64 KiB boundary remains
 component evidence. Watch, transfer recovery/local cancellation and release
 qualification remain open.
+
+Rust `watch::Watch` and C `sophia_pw_*` now retain a watch fid and issue one
+nonempty offset-zero read. They neither poll the file repeatedly nor reopen it
+automatically. ESTALE on the retained object is followed by clunk; only then is
+revocation reported and the original root returned. A separately fetched
+transfer is not assumed to share the watch's object identity.
+
+Local cancellation closes Rust's owned role; C marks the operation closed and
+requires its caller to close the borrowed fd. Expiry follows the same failure
+path. Neither reports revocation or preserves the connection through a flush.
+Each driver owns the role exclusively, so composing concurrent watch and other
+recipient operations remains a session-integration gap.
+
+Both peers pass production lock, replacement, source-generation, absence,
+local-cancellation and deadline cases. Revocation returns root-only ownership;
+absence preserves ENOENT; cancellation/expiry remain distinct from revocation.
+All eighteen external portal gates and strict Clippy pass. These do not measure
+idle cost or qualify malformed watch replies, clunk refusal, flush-based
+cancellation or reconnect recovery; those audits and release work remain.
