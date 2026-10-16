@@ -6,6 +6,7 @@ Sophia checkout to build.
 
 | Crate | What it is |
 | --- | --- |
+| `sophia-admin-protocol` | Developing passive administrative records; currently only the bounded info decoder. No administrative client yet. |
 | `sophia-9p-records` | 9P2000.L value records (tags, fids, qids, wire errno, requests, replies), shared with Sophia's server core. |
 | `sophia-9p-client` | Bounded 9P2000.L clients: a blocking read-only `client` and the nonblocking, pipelined `pipeline` the role clients drive. |
 | `sophia-launch-client` | Sophia's local launch-channel authentication: correlated afid exchange, bounded progress and an admitted role root. |

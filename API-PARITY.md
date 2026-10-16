@@ -559,3 +559,7 @@ settled prefix and queued tail. [Administration](ADMIN-PARITY.md) now pins the
 accepted file contract and names the missing operations in both SDKs. Broker
 files remain design-only under Sophia t314; portal requester and recipient
 interfaces need separate typed coverage and must not share authority.
+
+Admin map 2 adds equivalent allocation-free info decoding in C and Rust.
+It validates service identity and advertised timeout fields only; neither
+SDK yet has an administrative session client.

@@ -1,6 +1,6 @@
 # Administrative SDK parity
 
-Revision 1, 2026-10-16. Neither SDK yet provides the typed administrative
+Revision 2, 2026-10-16. Neither SDK yet provides the typed administrative
 client. This is required t333 work, not an unsupported-role waiver.
 
 The pinned file contract is copied unchanged from Sophia
@@ -28,4 +28,12 @@ Use the runtime's one-millisecond pending-status interval as a compatibility
 reference, exposed through caller-driven wakeups. Do not copy its blocking
 sleep loop into either SDK's external-loop API. Catalog ownership should
 transfer or remain borrowed rather than cloning on every query. These are
-design requirements; no implementation or speedup is claimed here.
+design requirements; no client implementation or speedup is claimed here.
+
+Both SDKs now decode the complete info record without heap allocation. Rust
+returns a Copy value; C fills caller storage only after validating the entire
+record. Independent tests cover literal values, maximum identities/timeouts,
+zero and overflow refusals, every truncated prefix, noncanonical numbers,
+extra fields, control bytes and malformed UTF-8. Parsing does not establish
+EOF, admission or a deadline policy; those remain client responsibilities.
+Catalog, invocation and status codecs and the external-loop client remain.

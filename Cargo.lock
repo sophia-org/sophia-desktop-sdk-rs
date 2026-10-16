@@ -104,6 +104,10 @@ name = "sophia-9p-records"
 version = "0.3.0"
 
 [[package]]
+name = "sophia-admin-protocol"
+version = "0.3.0"
+
+[[package]]
 name = "sophia-desktop-ids"
 version = "0.3.0"
 

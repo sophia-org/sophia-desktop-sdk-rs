@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/sophia-admin-protocol",
     "crates/sophia-9p-client",
     "crates/sophia-9p-records",
     "crates/sophia-desktop-ids",
