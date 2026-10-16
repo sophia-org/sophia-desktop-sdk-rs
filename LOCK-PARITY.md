@@ -1,8 +1,8 @@
 # Experimental lock SDK parity
 
-Revision 4, 2026-10-16. The pinned lock file contract remains draft.
+Revision 5, 2026-10-16. The pinned lock file contract remains draft.
 C reference: `b383726`, `src/sophia_lock_client.h` and `src/lock_files/*.c`.
-Rust `sophia-lock-client` has preparation, startup, submission, journal and fetch;
+Rust `sophia-lock-client` has provisional components through upload lifecycle;
 it is not yet a usable lock session.
 
 | Capability | Rust status / remaining work |
@@ -13,8 +13,8 @@ it is not yet a usable lock session.
 | Submission and custody | Provisional bounded lane: one immutable submission, explicit EAGAIN retry, cumulative Submitted ACK barrier and latest-result inspection. Clunk/walk after settlement; reopen after ACK. Session integration remains. |
 | Journal | Provisional fixed 1024-byte buffer, retained ordered heads, internal controls, character-free Entry and granted Chord validation. Decode stops at a held head, including controls behind it. Session integration remains. |
 | Lock object | Provisional exact Qid/epoch fetch through EOF and clunk, bound to the announced generation. Newer Qid supersedes the announcement, consumed internally without reading. Session integration remains. |
-| Upload | Missing. Begin/admission, slot open, borrowed or owned chunk lifetime, end/cancel/retire, resource events and recovery. |
-| Upload window | Missing. C supports 1–8 writes with five control slots reserved; drain outstanding writes before cancellation. Pipelined short writes cancel, single-write mode can continue. |
+| Upload | Provisional Begin/admission, slot open, owned chunk lifetime, end/cancel, resource status/refusal and slot-error recovery. Retire remains an ordinary submission. Session integration remains. |
+| Upload window | Both support 1–8 writes with five control slots reserved; drain outstanding writes before cancellation. Pipelined short writes cancel, single-write mode can continue. Rust transport integration remains. |
 | Event loop | Missing. C service has no internal clock; retry is explicit. Match capabilities without adding polling or hidden clock overhead. |
 | Protected/production gates | Missing for the new Rust session; retain existing codec and raw-peer controls separately. |
 
@@ -48,7 +48,7 @@ C has an independent socket regression. Never replay a confirmed submission.
 The Rust lane borrows bounded write slices from fixed storage and adds no clocks
 or polling. Its body preparation still allocates temporarily. No measured runtime
 gain is claimed. Fourteen Rust lock-client tests and strict Clippy pass.
-Session integration and uploads remain unimplemented.
+Session integration remains unimplemented.
 
 Six journal tests cover fragmented records, retained heads, all event kinds,
 grants/refusal, malformed prefixes, publication barriers and bounded compaction.
@@ -64,5 +64,25 @@ tail space; C moves unread bytes when consuming a head. This is an internal
 implementation difference, not a measured performance result. Object decoding
 still allocates its bounded allocation list; the verified object transfers by
 ownership without cloning. Neither component adds timers, retries or polling.
-All 24 Rust lock-client tests and strict Clippy pass. These component tests do
+The 24 preparation/startup/submission/journal/fetch tests and strict Clippy pass. These component tests do
 not establish integrated session or production-export parity.
+
+Seven Rust upload tests cover reversed replies with refill while the first reply
+is held, explicit cancellation, pipelined short writes and remote errors, terminal
+resource status, disconnect, single-write continuation, multiple chunks, reserved
+control capacity, failed admission and malformed replies. C independently covers
+these behaviors in its socket-backed upload pipeline suite, including control
+traffic and immediate poll interest after cancellation drains. Rust's controller
+can offer Cancel immediately after the last reply, but its integrated event-loop
+test remains pending. All 31 Rust lock-client tests, strict Clippy and C's lock
+suite pass.
+
+Rust accepts ownership of a Vec without copying its payload; failed chunk admission
+returns that same Vec. After all issued writes settle, take_chunk returns the
+buffer for reuse. A new chunk may replace completed storage the caller did not
+recover. C borrows caller storage instead. Both retain bytes while writes are
+outstanding and bound chunk length by the resource's remaining declared bytes.
+Rust's wire transport may still copy write payloads; this is not an end-to-end
+zero-copy claim. Slot errors end or cancel the upload, not the connection;
+malformed replies terminate the session. New uploads remain possible after
+refusal or slot cleanup. No runtime performance gain has been measured.
