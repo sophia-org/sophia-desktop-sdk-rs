@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 41, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 42, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -546,3 +546,7 @@ and release-wide qualification are not established by this result.
 Rust has typed immutable candidate preparation and three tests; startup,
 journal, persistent submission lane, upload lifecycle/window and session gates
 remain. The contract is draft; candidate encoding is not role-client parity.
+
+Lock map 2 records provisional direct/admitted-root file startup and seven
+socket tests, including API epoch validation and persistent transaction fid.
+The complete session/upload lifecycle and production gates remain open.

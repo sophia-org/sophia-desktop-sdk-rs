@@ -1,14 +1,14 @@
 # Experimental lock SDK parity
 
-Revision 1, 2026-10-16. The pinned lock file contract remains draft.
+Revision 2, 2026-10-16. The pinned lock file contract remains draft.
 C reference: `cce3196`, `src/sophia_lock_client.h` and `src/lock_files/client*.c`.
-Rust `sophia-lock-client` has typed immutable candidate preparation only;
+Rust `sophia-lock-client` has candidate preparation and provisional file startup;
 it is not yet a usable lock session.
 
 | Capability | Rust status / remaining work |
 | --- | --- |
 | Candidate preparation | All seven candidate kinds; epoch/submission envelope, typed body validation, fixed 128-byte owned storage. Three tests cover literal bytes, caller mutation, full-size presentation and invalid shapes/offers. |
-| Direct/attached startup | Missing. Exact API epoch, Limits, four fixed streams and admitted-root handoff. |
+| Direct/attached startup | Provisional `Opening` on a versioned pipeline. Checks exact API epoch, matching Limits, four fixed streams and admitted-root handoff. Nonblocking version facade/session integration remains. |
 | Negotiation | Local offer checks match C: Present required, known bits, chords require Chords, valid revision range. Server decides unsupported revision and semantic chord refusal. Welcome/refusal handling remains. |
 | Submission and custody | Missing. Keep transaction fid open, one immutable submission, explicit retry after EAGAIN, cumulative Submitted ACK barrier and latest-result inspection. |
 | Journal | Missing. Retained ordered events, internal controls, character-free Entry and granted Chord validation. |
@@ -30,3 +30,15 @@ upload helper owns Begin/End/Cancel, and startup owns Negotiate. The developing
 Rust session must preserve those lifecycle boundaries rather than exposing
 unrestricted raw admission through the preparation enum. C’s independent codec
 and client suites pass; Rust’s three preparation tests and strict Clippy pass.
+
+Seven Rust socket startup tests cover fragmented reads, exact decimal API epoch
+(no zero, leading zero, overflow or suffix), Limits epoch matching, EOF/clunk,
+control iounits, quiescent admitted roots, clock regression and unsent expiry.
+Constructors queue without I/O. Startup keeps the transaction fid open read/write
+and retains its iounit; submit and ACK are write-only. Rust currently requires
+eight requests, sixteen fids, msize 4096–65536 and two-frame input capacity;
+C accepts six requests for its default single-write mode. This conservative
+Rust bound is explicit and must be revisited with upload-window integration.
+Rust adds a caller-supplied startup deadline; C leaves that timer to its caller.
+The ten Rust lock-client tests and strict Clippy pass; C’s independent suite
+passes. Session negotiation and all later operations remain unimplemented.
