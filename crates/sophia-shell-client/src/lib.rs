@@ -24,7 +24,7 @@ pub use native_lifecycle::{
     NativeObligations, NativePresentation, NativeResourceState, NativeScene, NativeSessionResponse,
 };
 mod outbox;
-pub use outbox::QueueReservation;
+pub use outbox::{QueueLimits, QueueReservation};
 mod reservation;
 pub use lifecycle::*;
 mod wire;

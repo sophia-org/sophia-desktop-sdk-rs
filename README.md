@@ -61,6 +61,12 @@ operations through `enqueue_shell_batch`, `reserve_shell_batch` and
 register lifecycle state or prove action eligibility. Use role helpers for
 those checks. A one-item batch provides delayed single-record admission.
 
+`set_queue_limits(QueueLimits { .. })` configures an empty live queue before
+handoff to a role facade. Defaults preserve 64 records/2 MiB with 32 records/
+8 KiB of control headroom; zero headroom uses a shared pool. In-flight records
+remain charged until settlement. Queue resizing is refused while records or
+delayed credits are held. Limits do not shrink retained allocation capacity.
+
 Use `custody_result(ticket)` to distinguish retained custody from
 `CustodyLookupError::Unavailable` (evicted history) and `Unissued`. The existing
 `custody` method still returns `None` for both lookup failures. Tickets must

@@ -2,6 +2,85 @@ use super::*;
 use crate::custody::{Admission, Ledger, Ticket};
 
 #[test]
+fn configured_headroom_and_inflight_charges_are_preserved() {
+    let mut outbox = ClientOutbox::default();
+    let mut ledger = Ledger::default();
+    let limits = QueueLimits {
+        records: 4,
+        bytes: 40,
+        control_records: 1,
+        control_bytes: 10,
+    };
+    outbox.set_limits(limits).unwrap();
+    for _ in 0..3 {
+        outbox
+            .enqueue(vec![vec![1; 10]], false, &mut ledger)
+            .unwrap();
+    }
+    assert!(outbox.enqueue(vec![vec![1]], false, &mut ledger).is_err());
+    outbox
+        .enqueue(vec![vec![2; 10]], true, &mut ledger)
+        .unwrap();
+    assert!(outbox.enqueue(vec![vec![2]], true, &mut ledger).is_err());
+    let bytes = outbox.take_front_bytes();
+    assert_eq!(bytes.len(), 10);
+    assert!(outbox.set_limits(QueueLimits::default()).is_err());
+    assert_eq!(outbox.limits(), limits);
+    for _ in 0..4 {
+        outbox.retire_front();
+    }
+    let token = outbox.reserve_capacity(3, 30).unwrap();
+    assert!(outbox.set_limits(QueueLimits::default()).is_err());
+    outbox.cancel_reservation(&token).unwrap();
+    outbox.set_limits(QueueLimits::default()).unwrap();
+}
+
+#[test]
+fn invalid_limits_leave_configuration_unchanged() {
+    let mut outbox = ClientOutbox::default();
+    for bad in [
+        QueueLimits {
+            records: 0,
+            ..QueueLimits::default()
+        },
+        QueueLimits {
+            records: 65,
+            ..QueueLimits::default()
+        },
+        QueueLimits {
+            bytes: 0,
+            ..QueueLimits::default()
+        },
+        QueueLimits {
+            bytes: MAX_QUEUED_BYTES + 1,
+            ..QueueLimits::default()
+        },
+        QueueLimits {
+            control_records: 65,
+            ..QueueLimits::default()
+        },
+        QueueLimits {
+            control_bytes: MAX_QUEUED_BYTES + 1,
+            ..QueueLimits::default()
+        },
+    ] {
+        assert!(outbox.set_limits(bad).is_err());
+        assert_eq!(outbox.limits(), QueueLimits::default());
+    }
+    outbox
+        .set_limits(QueueLimits {
+            records: 1,
+            bytes: 1,
+            control_records: 0,
+            control_bytes: 0,
+        })
+        .unwrap();
+    let mut ledger = Ledger::default();
+    outbox.enqueue(vec![vec![1]], false, &mut ledger).unwrap();
+    assert!(outbox.enqueue(vec![vec![1]], true, &mut ledger).is_err());
+}
+
+#[test]
 fn reserved_bytes_and_slots_preserve_bulk_and_control_limits() {
     let mut outbox = ClientOutbox::default();
     let mut ledger = Ledger::default();

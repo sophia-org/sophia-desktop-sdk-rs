@@ -9,8 +9,44 @@ use crate::{MAX_QUEUED_BYTES, MAX_QUEUED_FRAMES, ShellClientError};
 const CONTROL_RECORDS: usize = 32;
 const CONTROL_BYTES: usize = CONTROL_RECORDS * 256;
 
+/// Local admission bounds, independent of server Limits. Control records may
+/// use the whole queue; bulk records leave the configured headroom unused.
+/// Zero headroom selects a shared pool, like the C session queue.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct QueueLimits {
+    pub records: usize,
+    pub bytes: usize,
+    pub control_records: usize,
+    pub control_bytes: usize,
+}
+impl Default for QueueLimits {
+    fn default() -> Self {
+        Self {
+            records: MAX_QUEUED_FRAMES,
+            bytes: MAX_QUEUED_BYTES,
+            control_records: CONTROL_RECORDS,
+            control_bytes: CONTROL_BYTES,
+        }
+    }
+}
+impl QueueLimits {
+    fn validate(self) -> Result<(), ShellClientError> {
+        if self.records == 0
+            || self.records > MAX_QUEUED_FRAMES
+            || self.bytes == 0
+            || self.bytes > MAX_QUEUED_BYTES
+            || self.control_records > self.records
+            || self.control_bytes > self.bytes
+        {
+            return Err(ShellClientError::InvalidArgument("queue limits"));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct ClientOutbox {
+    limits: QueueLimits,
     frames: VecDeque<Frame>,
     bytes: usize,
     bulk_records: usize,
@@ -57,6 +93,19 @@ impl PreparedQueue {
     }
 }
 impl ClientOutbox {
+    pub(crate) fn limits(&self) -> QueueLimits {
+        self.limits
+    }
+    pub(crate) fn set_limits(&mut self, limits: QueueLimits) -> Result<(), ShellClientError> {
+        limits.validate()?;
+        // The front remains charged while the wire owns its bytes, including
+        // Submitted wait. Never resize across queued, in-flight or held credits.
+        if !self.frames.is_empty() || self.reserved.is_some() {
+            return Err(ShellClientError::QueueSaturated);
+        }
+        self.limits = limits;
+        Ok(())
+    }
     pub(crate) fn reserve_capacity(
         &mut self,
         slots: usize,
@@ -64,8 +113,8 @@ impl ClientOutbox {
     ) -> Result<QueueReservation, ShellClientError> {
         if slots == 0
             || bytes == 0
-            || slots > MAX_QUEUED_FRAMES - CONTROL_RECORDS
-            || bytes > MAX_QUEUED_BYTES - CONTROL_BYTES
+            || slots > self.limits.records - self.limits.control_records
+            || bytes > self.limits.bytes - self.limits.control_bytes
         {
             return Err(ShellClientError::InvalidArgument("reservation size"));
         }
@@ -117,23 +166,23 @@ impl ClientOutbox {
             .len()
             .saturating_add(reserved_slots)
             .saturating_add(slots)
-            <= MAX_QUEUED_FRAMES
+            <= self.limits.records
             && self
                 .bytes
                 .saturating_add(reserved_bytes)
                 .saturating_add(bytes)
-                <= MAX_QUEUED_BYTES
+                <= self.limits.bytes
             && (control
                 || (self
                     .bulk_records
                     .saturating_add(reserved_slots)
                     .saturating_add(slots)
-                    <= MAX_QUEUED_FRAMES - CONTROL_RECORDS
+                    <= self.limits.records - self.limits.control_records
                     && self
                         .bulk_bytes
                         .saturating_add(reserved_bytes)
                         .saturating_add(bytes)
-                        <= MAX_QUEUED_BYTES - CONTROL_BYTES))
+                        <= self.limits.bytes - self.limits.control_bytes))
     }
 
     pub(crate) fn prepare_reserved(

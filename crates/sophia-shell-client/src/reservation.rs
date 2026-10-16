@@ -5,6 +5,19 @@ use crate::{Admission, QueueReservation, ShellClientError, ShellConnection};
 use sophia_shell_protocol::{ShellContentRecord, TransactionId};
 
 impl ShellConnection {
+    pub fn queue_limits(&self) -> crate::QueueLimits {
+        self.output.limits()
+    }
+
+    /// Configure a live, empty admission queue, with no delayed reservation.
+    /// In-flight records remain charged until settlement. Bounds are 1..=64
+    /// records and 1..=2 MiB, with headroom no larger than either total. This
+    /// changes logical limits, not retained allocation capacity. Configure
+    /// before giving the connection to an owning role facade.
+    pub fn set_queue_limits(&mut self, limits: crate::QueueLimits) -> Result<(), ShellClientError> {
+        self.wire.io_interest()?;
+        self.output.set_limits(limits)
+    }
     /// Reserve up to `slots` encoded units and `bytes` before choosing records.
     /// One reservation may be live; dispatch and admissions using the remaining
     /// capacity can continue. Credits come from the bulk allowance, preserving

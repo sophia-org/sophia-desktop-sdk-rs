@@ -1,5 +1,16 @@
 # Provenance
 
+## t333 configurable queue limits
+
+`QueueLimits` makes total records/bytes and optional control headroom explicit.
+Defaults are unchanged. Configuration requires a live empty queue without
+reserved credits; the wire-owned front remains charged until settlement.
+Tests cover boundaries, invalid settings, busy resizing and retained headroom.
+The independent C descriptor test documents its different handoff accounting:
+one record moves into separate transaction storage outside its queue limit.
+Full workspace tests, strict Clippy and C's full suite pass. Matrix 15 records
+supported ranges and accounting; production-export adoption remains pending.
+
 ## t333 general role batches
 
 `ShellBatchItem` extends immediate, prepared and serviceable delayed admission

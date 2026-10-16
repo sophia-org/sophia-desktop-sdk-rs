@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 14, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 15, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -88,8 +88,8 @@ reserved byte/slot isolation, control credits, unused-credit release, invalid
 records, wrong-connection/stale tokens, cancellation and terminal release.
 Allocation failure can still refuse a delayed-content commit while preserving
 credits; use a prepared handle when the local side effect needs an infallible
-commit. Rust takes nonzero bounded byte/slot counts; its fixed bulk/control
-partition differs from C's configurable queue limits.
+commit. Rust takes nonzero bounded byte/slot counts. Both queues are configurable;
+the accounting and optional Rust headroom are described below.
 
 C regression `reservation_is_bound_to_its_session` failed on `cfa6561`: two
 live sessions with the same reservation serial accepted one another's token.
@@ -290,8 +290,7 @@ external edits cannot be replayed safely; C callbacks must return normally.
 Independent tests cover a declined edit's Stale ACK. Rust additionally tests both
 wire dispositions, full-queue suppression, uneditable input and caught panic;
 C's existing tests cover reserve-before-edit and repeated heads. Full Rust tests,
-strict Clippy and C tests pass; the native Rust suite now has 38 tests. The general batch API below closes delayed non-content admission; configurable
-queue limits remain open.
+strict Clippy and C tests pass; the native Rust suite now has 38 tests. The general batch API below closes delayed non-content admission; queue configuration is described below.
 These gaps still block full t333 parity and production adoption.
 
 ## General role batches and delayed admission
@@ -318,3 +317,32 @@ and whole catalog/activation records. C independently submits a delayed
 descriptor pair through its real session peer. Full Rust workspace tests,
 strict Clippy and C's full suite pass. Existing content batch controls still
 cover staged upload rollback. Production-export qualification is pending.
+
+## Configurable queue limits
+
+C configures `queue_slots` (1–64) and `queue_bytes` (8 KiB–512 KiB) at session
+initialization. Rust `QueueLimits` configures 1–64 total records and 1 byte–2 MiB,
+with separate optional control-record and control-byte headroom. Every C queue
+size is representable. Rust defaults remain 64 records/2 MiB with 32 records/
+8 KiB reserved from bulk use. Zero headroom selects C's shared-pool policy.
+Neither configuration changes server Limits or per-record codec bounds.
+
+Rust `set_queue_limits` requires a live queue with no admitted units or delayed
+credits; prepared handles prevent mutation through their exclusive borrow.
+Invalid configuration and busy resizing preserve the old limits. Settings are
+logical admission bounds and do not shrink retained allocator capacity. Configure
+before transferring the connection into an owning native session.
+
+Accounting differs with storage ownership: C copies a queued record into separate
+transaction storage at handoff and frees its queue credits then; at most one
+additional record is in flight. Rust transfers ownership without copying and
+keeps that record charged until settlement. Thus a two-slot C queue can retain
+two queued records plus one in flight, whereas Rust's two-record limit includes
+that flight. This implementation difference is explicit; identical settings do
+not promise identical admission timing or memory use.
+
+Independent descriptor tests exercise two-record shared pools and document that
+boundary. Rust controls cover byte/record headroom, delayed credits, invalid
+limits and attempted resize while the wire owns bytes. Full Rust workspace
+tests, strict Clippy and C `make check` pass. Production export checks remain
+pending under t333.
