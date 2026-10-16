@@ -147,11 +147,16 @@ impl<'a> Fetch<'a> {
     /// Return the completed transfer slice without copying. Metadata fetches
     /// and unfinished transfers cannot use this handoff.
     pub fn into_transfer(self) -> Result<&'a mut [u8], Error> {
+        let (bytes, used) = self.into_transfer_storage()?;
+        Ok(&mut bytes[..used])
+    }
+    /// Return all caller storage plus the completed payload length for reuse.
+    pub fn into_transfer_storage(self) -> Result<(&'a mut [u8], usize), Error> {
         if self.result().is_none() || self.file != File::Transfer {
             return Err(Error::Invalid);
         }
         match self.bytes {
-            Storage::Borrowed(bytes) => Ok(&mut bytes[..self.used]),
+            Storage::Borrowed(bytes) => Ok((bytes, self.used)),
             Storage::Inline(_) => Err(Error::Invalid),
         }
     }

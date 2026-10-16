@@ -78,6 +78,91 @@ fn main() {
     );
     assert!(opened.info.epoch > 0 && opened.pipeline.fid_count() == 1);
     assert!(opened.pipeline.is_quiescent());
+    if mode.starts_with("sdk-session") {
+        use sophia_portal_client::{
+            session::{Session, WatchEvent},
+            snapshot::File,
+        };
+        let mut storage = vec![0xa5; 65536];
+        let pointer = storage.as_ptr();
+        let mut session = Session::new(opened).unwrap();
+        let mut buffer = Some(storage.as_mut_slice());
+        let expires = start.elapsed().as_millis() as u64 + 3000;
+        session.watch(expires).unwrap();
+        session.snapshot(File::Status, expires).unwrap();
+        let mut phase = 0;
+        loop {
+            assert!(Instant::now() < deadline);
+            let interest = session.io_interest().unwrap();
+            let fd = session.fd().unwrap();
+            let mut flags = rustix::event::PollFlags::IN;
+            if interest.writable {
+                flags |= rustix::event::PollFlags::OUT;
+            }
+            let mut fds = [rustix::event::PollFd::new(&fd, flags)];
+            let wait = Duration::from_millis(if interest.immediate {
+                0
+            } else {
+                session
+                    .deadline()
+                    .unwrap()
+                    .saturating_sub(start.elapsed().as_millis() as u64)
+            });
+            rustix::event::poll(
+                &mut fds,
+                Some(&rustix::event::Timespec::try_from(wait).unwrap()),
+            )
+            .unwrap();
+            session
+                .dispatch(start.elapsed().as_millis() as u64, 65536)
+                .unwrap();
+            if phase == 0 && session.snapshot_result().is_some() {
+                assert_eq!(
+                    session.snapshot_result().unwrap(),
+                    b"request=unavailable transfer=ready\n"
+                );
+                assert!(session.watch_waiting() && session.watch_event().is_none());
+                session.release_snapshot().unwrap();
+                let report = std::env::var_os("SOPHIA_TEST_LOCK_REPORT").unwrap();
+                std::fs::write(&report, b"session-ready\n").unwrap();
+                while std::fs::read_to_string(&report).unwrap() != "continue\n" {
+                    assert!(Instant::now() < deadline);
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                session.transfer(buffer.take().unwrap(), expires).unwrap();
+                if mode == "sdk-session-cancel" {
+                    session.cancel_watch().unwrap();
+                }
+                phase = 1;
+            }
+            if phase == 1 && session.watch_event().is_some() && session.snapshot_result().is_some()
+            {
+                break;
+            }
+        }
+        assert_eq!(
+            session.watch_event(),
+            Some(if mode == "sdk-session-cancel" {
+                WatchEvent::Cancelled
+            } else {
+                WatchEvent::Revoked
+            })
+        );
+        session.release_watch().unwrap();
+        let (buffer, length) = session.take_transfer().unwrap();
+        assert_eq!(buffer.as_ptr(), pointer);
+        assert_eq!(&buffer[..length], b"granted");
+        assert!(buffer[length..].iter().all(|b| *b == 0xa5));
+        let role = session.finish().unwrap();
+        assert_eq!(role.pipeline.fid_count(), 1);
+        assert!(role.pipeline.is_quiescent());
+        std::fs::write(
+            std::env::var_os("SOPHIA_TEST_LOCK_REPORT").unwrap(),
+            b"session-done\n",
+        )
+        .unwrap();
+        return;
+    }
     if mode.starts_with("sdk-watch") {
         let absent = mode == "sdk-watch-absent";
         let cancel = mode == "sdk-watch-cancel";

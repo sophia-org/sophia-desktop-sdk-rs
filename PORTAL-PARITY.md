@@ -1,6 +1,6 @@
 # Portal SDK parity
 
-Revision 17, 2026-10-16. Recipient components are developing; there is no complete
+Revision 18, 2026-10-16. Recipient components are developing; there is no complete
 portal client or parity claim.
 
 The unchanged recipient contract in `spec/portal-client-files.md` comes from
@@ -272,3 +272,24 @@ It does not qualify reconnect after role loss or a shared recipient session.
 The next integration must route watch and foreground replies by their own
 tags on one pipeline, preserve independent object identities and bounded
 storage, and provide explicit cancellation without losing unrelated work.
+
+The developing shared session now runs one watch alongside one metadata or
+transfer snapshot on a single pipeline. Rust `session::Session` and C
+`sophia_pcs_*` route replies by separate tags, retain watch events until
+released and use bounded dispatch. Transfer bytes stay in caller storage;
+Rust returns the full borrowed buffer and payload length for reuse.
+
+Watch cancellation drains already decoded replies, sends Tflush for a pending
+read and clunks the retained fid. A revocation reply preceding Rflush takes
+precedence over cancellation. Foreground work remains on the same connection.
+Original deadlines bound cleanup; expiry or a terminal protocol/transport
+failure still ends the role. No operation is replayed after loss.
+
+Independent production peers pass status access with a pending watch,
+cancellation while a transfer continues, and an old watch's revocation beside
+a replacement object's transfer. Both finish with root-only ownership.
+All twenty external portal gates, nineteen Rust component tests and strict
+Clippy pass. Deterministic flush/reply races and shared-session failure tests
+remain; production scenarios do not qualify every ordering. Shared capture
+requests and frame reads are still missing, as are the remaining recovery,
+trusted requester/broker and release gates.
