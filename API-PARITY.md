@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 16, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 17, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -378,3 +378,28 @@ admission instead; production-export review must assess those differences
 against supported applications. The matrix records them explicitly rather than
 claiming codec coverage proves full parity. WM, output, lock, administration,
 broker/portal scope and release/export gates remain under t333.
+
+## WM protocol foundation; session client pending
+
+Rust `sophia-wm-protocol` extracts Sophia's neutral WM file codecs and passive
+policy values at `1d071c144199548b55d8c42a961aa3e13b60ef74`. Its API/schema/docs
+and golden corpus match the C SDK contract pins byte for byte. It imports no
+Engine, X11, IPC or authority owner. Source paths and hashes are in the crate's
+`EXTRACTION.md`; shared OutputId/TransactionId remain SDK identifiers.
+
+The crate provides file envelope/section/submit/ACK validation; Limits and
+capability negotiation; all profile handoff commands/completions; complete
+snapshot/configuration/projection records and extension rows; every Cycle
+cause; dirty/session-operation records; outcome and presentation receipts.
+The 71 extracted controls cover literal envelopes, golden rows, capability gates,
+truncation/reserved bytes, complete arrays and neutral semantic validation.
+Full Rust workspace tests, strict Clippy and C's independent suite pass.
+
+This is the codec foundation, not the missing WM session. Rust still needs C
+`sophia_ws` equivalents for direct and already-authenticated attached startup,
+caller-clock bounded dispatch/readiness, exact negotiation, retained event head,
+submission/ACK custody barriers, immutable same-ID retries, fixed deadlines,
+64-ticket retention, optional domain transaction allocation, Cycle-bound
+snapshot identity/EOF checks, release and explicit close. No profile activation,
+scene commit or application authority follows from codec-valid records. Paired
+session and production-export tests are required before WM parity is complete.

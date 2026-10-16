@@ -148,6 +148,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sophia-wm-protocol"
+version = "0.3.0"
+dependencies = [
+ "sophia-desktop-ids",
+]
+
+[[package]]
 name = "unicode-width"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,5 +1,16 @@
 # Provenance
 
+## t333 native WM protocol foundation
+
+`sophia-wm-protocol` extracts neutral WM codecs, passive policy records and
+selected identifier/geometry/support types from signed Sophia
+`1d071c144199548b55d8c42a961aa3e13b60ef74`. The crate's `EXTRACTION.md` records
+source hashes, selections and adaptations. No Engine, X11 or IPC owner is
+included. WM KDL, API docs, file docs and golden corpus match the C SDK's pins
+byte for byte; the new spec entries pass SHA-256 verification.
+The 71 extracted tests, full workspace suite, strict Clippy and C's independent
+suite pass. This supplies codecs, not a WM session or production-export gate.
+
 ## t333 local close and shell operation audit
 
 `ShellConnection::close` settles local custody without I/O and retains decoded

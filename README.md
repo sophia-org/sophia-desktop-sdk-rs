@@ -13,12 +13,19 @@ Sophia checkout to build.
 | `sophia-desktop-ids` | Identifiers every role contract shares. |
 | `sophia-shell-protocol` | The shell's typed records and the `sophia_shell_fs_v1` file contract codec. |
 | `sophia-shell-client` | The shell client over the file contract. |
+| `sophia-wm-protocol` | The WM file codecs and passive policy records; no session client yet. |
 | `sophia-lock-protocol` | The lock provider's `sophia_lock_fs_v1` file contract codec (experimental; see Contracts). |
 
 The shell role is the only one with a full role client here. The lock provider role has
 an experimental codec and no client. WM and output file contracts and C clients
 already exist, but their Rust clients are missing. Administration also lacks a
 Rust client. [API parity](API-PARITY.md) records the current comparison and gaps.
+
+The WM protocol crate includes negotiation, profile handoff, snapshots,
+configuration, projection, Cycle events and outcome records. Its schema and
+golden corpus match the C SDK's pinned contract. Encoding a valid record does
+not establish custody or a committed scene; those require the pending session
+client and production-export qualification.
 
 For an external level-triggered event loop, `ShellConnection` implements
 `AsFd` and exposes `io_interest()` alongside `wake_deadline()`. Drive `poll_io`
