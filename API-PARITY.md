@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 6, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 7, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -113,13 +113,42 @@ one connection; numeric tickets do not detect accidental use on another one.
 Rust ledger and scripted disconnect checks match C's `old_and_unissued_tickets`
 retention-boundary test and existing uncertain-custody controls.
 
-The native launcher gap starts below lifecycle helpers: Rust has
-`ShellNativeLauncherRecord` codecs, but its shell client's `Outbound` and
-`Inbound` types do not carry them. Add negotiated native record transport,
-observations and atomic input/activation responses before a lifecycle helper.
-Then map C's opening/focus/revocation, input revision and ACK obligations,
-allocation/upload/retirement, presentation and activation outcomes against the
-pinned native contract. Rust's existing `ContentLifecycle` handles content
-presentation/actions; it is not the counterpart of C's `sophia_ns` helper.
-These capabilities remain unavailable to Rust clients until implemented and
-qualified; codec coverage alone cannot justify release parity.
+## Native launcher transport
+
+The Rust client now supports the pinned revision-7 launcher profile: exact
+capability bits 5, 7, 8 and 11, with Limits. Other roles cannot use its native
+record API or deliver native events. The public entry points map as follows:
+
+| Operation | Native C | Native Rust |
+| --- | --- | --- |
+| Allocation, input ACK, activation | `sophia_ss_submit` with native records | `enqueue_native_launcher_tracked` |
+| Whole native candidate | `sophia_ss_submit` with NativeCandidate | `enqueue_native_candidate_tracked` |
+| Observe native/shared events and catalog | `sophia_ss_event`, consume; `sophia_ns_next` adds lifecycle policy | `take_native_launcher_observation`, transport only |
+| Keyboard activation plus ACK | `sophia_ss_submit`; helper `sophia_ns_input_reserve/commit` | `reserve_native_input_response`, or `enqueue_native_input_response` |
+
+Rust's prepared response validates matching event identities and distinct
+transactions, then holds both records before a UI edit. Activation precedes
+ACK. Commit admits both or neither locally, with independent custody tickets;
+Drop cancels. It does not decide whether focus permits activation, infer an
+input disposition, or enforce the input ACK deadline. The existing content
+reservation handle is reused; it exclusively borrows the connection.
+
+Use the native observation stream exclusively when ordering matters: native,
+content and catalog receive methods otherwise remove items from the same inbox.
+The catalog carries application entries without persistent identities. Existing
+snapshot coalescing and bounded fetching still apply. Journal acknowledgements
+confirm delivery, not application input acknowledgement or action completion.
+
+Seven Rust scripted-peer checks cover exact negotiation, all native events,
+catalog ordering, allocation/whole-candidate custody, cancellation, invalid
+response identity, queue saturation, malformed input, foreign epochs and
+separate custody after disconnect. C `f8ca212` passes its full suite, including
+`sophia_shell_files_roles_test` and `native_session_test`'s `test_input` and
+`test_activation`. C helper tests use a session stand-in; these paired checks
+are not production-export or physical qualification.
+
+Next map opening/focus/revocation, input revision and ACK obligations,
+allocation/upload/retirement, presentation and activation outcomes into a Rust
+lifecycle helper. `ContentLifecycle` is not C's `sophia_ns` counterpart. Pointer
+activation/ACK batching and delayed native reservation APIs also remain gaps.
+Do not claim full native lifecycle or desktop API parity from this transport.

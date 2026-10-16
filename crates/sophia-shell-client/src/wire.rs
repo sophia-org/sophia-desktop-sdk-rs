@@ -10,6 +10,16 @@ use sophia_shell_protocol::{
 /// One whole client-to-session unit. Named for what it means, never for how
 /// many frames a wire needs to carry it.
 pub(crate) enum Outbound {
+    Native(sophia_shell_protocol::shell_files::ShellFileNativeLauncherRecord),
+    NativeCandidate(sophia_shell_protocol::shell_files::ShellFileNativeCandidate),
+    NativeResponse {
+        transaction: TransactionId,
+        ack: sophia_shell_protocol::NativeLauncherInputAck,
+        activation: Option<(
+            TransactionId,
+            sophia_shell_protocol::NativeLauncherActivation,
+        )>,
+    },
     Descriptor(sophia_shell_protocol::shell_files::ShellFileDescriptorRecord),
     /// One content record.
     Content(TransactionId, ShellContentRecord),
@@ -46,6 +56,11 @@ impl Outbound {
     /// than bulk capacity, matching the r5 outbox split enforced today.
     pub(crate) fn is_control(&self) -> bool {
         match self {
+            Outbound::Native(value) => matches!(value.record,
+                sophia_shell_protocol::ShellNativeLauncherRecord::InputAck(_)
+                | sophia_shell_protocol::ShellNativeLauncherRecord::Activate(_)),
+            Outbound::NativeCandidate(_) => false,
+            Outbound::NativeResponse { .. } => true,
             Outbound::Descriptor(value) => matches!(value.record,
                 sophia_shell_protocol::shell_files::ShellDescriptorRecord::DescriptorActivationAck(_)
                 | sophia_shell_protocol::shell_files::ShellDescriptorRecord::LauncherActivationAck(_)),
@@ -60,6 +75,7 @@ impl Outbound {
 
 /// One complete session-to-client value decoded from file records.
 pub(crate) enum Inbound {
+    Native(sophia_shell_protocol::shell_files::ShellFileNativeLauncherRecord),
     Descriptor(sophia_shell_protocol::shell_files::ShellFileDescriptorRecord),
     ApplicationCatalog(
         TransactionId,

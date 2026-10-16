@@ -309,6 +309,8 @@ impl FileWire {
         if descriptor {
             super::descriptor::validate_negotiated(options, &negotiated)?;
         }
+        let native_launcher = role == "launcher";
+        super::native_launcher::validate_negotiated(native_launcher, options, &negotiated)?;
 
         let mut inbox = VecDeque::new();
         let mut upload_slots = 0u8;
@@ -360,6 +362,7 @@ impl FileWire {
             epoch: connection_epoch,
             capabilities: welcome.capabilities,
             descriptor,
+            native_launcher,
             root,
             events_fid,
             submit_fid,

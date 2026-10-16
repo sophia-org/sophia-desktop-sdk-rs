@@ -60,6 +60,17 @@ Use `custody_result(ticket)` to distinguish retained custody from
 `custody` method still returns `None` for both lookup failures. Tickets must
 be queried on their issuing connection.
 
+For the native launcher, negotiate revision 7 with exactly the application
+catalog, content surface, discrete input and native launcher capabilities.
+`enqueue_native_launcher_tracked` sends allocation requests, input ACKs and
+activations; `enqueue_native_candidate_tracked` sends a whole candidate.
+`reserve_native_input_response` prepares an ACK and optional keyboard activation
+before a local edit; commit admits both or neither, with separate custody tickets.
+Drain `take_native_launcher_observation` for native events, content outcomes and
+catalogs in order. Do not mix other receive methods into that ordered stream.
+This is transport support: the caller still owns focus eligibility, input ACK
+deadlines and lifecycle state. C's full native lifecycle helper is not yet matched.
+
 The protocol crate also carries the descriptor, tabs, shortcut/reference and
 revision-4 launcher records, native file codecs and pure validation. This
 descriptor client role follows `spec/sophia-shell-files-v1.kdl` and

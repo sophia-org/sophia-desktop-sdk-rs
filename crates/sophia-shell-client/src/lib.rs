@@ -15,6 +15,8 @@ mod descriptor;
 mod files;
 pub use descriptor::DescriptorObservation;
 mod lifecycle;
+mod native_launcher;
+pub use native_launcher::NativeLauncherObservation;
 mod outbox;
 pub use outbox::QueueReservation;
 mod reservation;
@@ -114,7 +116,7 @@ pub struct ShellConnection {
     ledger: custody::Ledger,
 }
 
-/// Validated content whose local admission capacity is held exclusively.
+/// Validated shell records whose local admission capacity is held exclusively.
 /// No ticket is issued and nothing is sent until `commit`. Drop or `cancel`
 /// discards it. The connection cannot be driven or used for another admission
 /// while this handle exists. It reserves local capacity, not server acceptance.

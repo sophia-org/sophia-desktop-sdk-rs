@@ -40,6 +40,7 @@ mod connect;
 mod descriptor;
 mod drive;
 mod events;
+mod native_launcher;
 mod opening;
 mod submission;
 mod uploads;
@@ -220,6 +221,7 @@ pub(crate) struct FileWire {
     capabilities: u64,
     /// Session's pre-admitted API role; bit 0 on a content bar is not enough.
     descriptor: bool,
+    native_launcher: bool,
     root: Fid,
     events_fid: Fid,
     submit_fid: Fid,
@@ -432,6 +434,42 @@ impl FileWire {
             return Err(ShellClientError::MissingCapability);
         }
         match outbound {
+            Outbound::Native(value) => {
+                let bytes = self.encode_native_record(&value)?;
+                Ok(self.stage_records(vec![bytes]))
+            }
+            Outbound::NativeCandidate(value) => {
+                self.require_native_launcher()?;
+                let header = self.next_header(ShellFileKind::NativeCandidate);
+                let bytes = encode_shell_file_native_candidate(header, &value)?;
+                Ok(self.stage_records(vec![bytes]))
+            }
+            Outbound::NativeResponse {
+                transaction,
+                ack,
+                activation,
+            } => {
+                self.require_native_launcher()?;
+                let mut records = Vec::with_capacity(2);
+                if let Some((tx, activation)) = activation {
+                    if activation.event != ack.event || activation.cause != 1 || tx == transaction {
+                        return Err(ShellClientError::InvalidArgument(
+                            "native response identity",
+                        ));
+                    }
+                    records.push(self.encode_native_record(&ShellFileNativeLauncherRecord {
+                        transaction: tx,
+                        record: sophia_shell_protocol::ShellNativeLauncherRecord::Activate(
+                            activation,
+                        ),
+                    })?);
+                }
+                records.push(self.encode_native_record(&ShellFileNativeLauncherRecord {
+                    transaction,
+                    record: sophia_shell_protocol::ShellNativeLauncherRecord::InputAck(ack),
+                })?);
+                Ok(self.stage_records(records))
+            }
             Outbound::Descriptor(value) => {
                 let kind = shell_file_descriptor_kind(&value.record);
                 self.require_descriptor_kind(kind)?;

@@ -1,5 +1,24 @@
 # Provenance
 
+## t333 native launcher transport
+
+The shell client now carries revision-7 native launcher records under the
+pinned shell-file contract. Negotiation requires the launcher role, exact
+capability mask and Limits. Typed observations preserve order across native
+events, shared content outcomes and fetched application catalogs. Whole native
+candidates and allocation/input/activation records use the existing custody
+lane. A prepared keyboard response admits activation then ACK atomically, each
+with its own ticket; no lifecycle authority is inferred from admission.
+
+Seven scripted-peer tests cover negotiation refusal, event order, catalog
+fetching, allocation/candidate submission, response cancellation and saturation,
+invalid inputs, malformed padding, foreign epochs and split disconnect custody.
+Workspace tests and strict all-target Clippy pass. C's full `make check` passes
+at `f8ca212`, including independent native codecs, input reservation and ordered
+activation/ACK controls. Its helper tests use a session stand-in; production
+export qualification remains pending. Full Rust lifecycle, pointer-response
+batching and delayed native reservation APIs remain open under t333.
+
 ## t333 custody lookup
 
 `custody_result` adds explicit unissued/evicted lookup results while preserving
