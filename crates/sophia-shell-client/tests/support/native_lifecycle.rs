@@ -20,6 +20,7 @@ fn late_presented_after_close_does_not_restore_focus() {
     l.observe(&outcome(2)).unwrap();
     observe(&mut l, ShellNativeLauncherRecord::Focus(b()));
     assert!(l.opening().is_none() && l.focus().is_none());
+    assert!(l.presented().is_none());
     assert_eq!(l.state(), NativeLifecycleState::Live);
 }
 
@@ -262,9 +263,15 @@ fn prepared_is_not_presented_and_focus_requires_exact_binding() {
     c.enqueue_native_candidate_with_lifecycle(&mut l, &candidate())
         .unwrap();
     l.observe(&outcome(1)).unwrap();
+    assert!(l.presented().is_none());
     observe(&mut l, ShellNativeLauncherRecord::Focus(b()));
     assert!(l.focus().is_none());
     l.observe(&outcome(2)).unwrap();
+    let presented = l.presented().unwrap();
+    assert_eq!(presented.rows, &[1]);
+    assert_eq!(presented.selected, 1);
+    assert_eq!(presented.presentation_epoch, b().presentation_epoch);
+    assert_eq!(presented.transaction, tx(40));
     observe(&mut l, ShellNativeLauncherRecord::Focus(b()));
     assert_eq!(l.focus(), Some(&b()));
     let other = NativeLauncherBinding {
@@ -429,4 +436,69 @@ fn disconnect_disarms_all_input_authority() {
     assert!(l.service(&c).is_err());
     assert_eq!(l.state(), NativeLifecycleState::Ended);
     assert!(l.focus().is_none() && l.opening().is_none() && l.input().is_none());
+}
+
+#[test]
+fn edit_result_selects_ack_after_capacity_is_reserved() {
+    for consumed in [false, true] {
+        let (mut c, mut p, mut l) = shown();
+        commit(&mut c, &mut p, Ticket(1));
+        input(&mut l, NativeLauncherInputKind::Text, 2);
+        let mut calls = 0;
+        let a = c
+            .apply_native_input(&mut l, tx(51), None, |input| {
+                assert_eq!(input.text, "ab");
+                calls += 1;
+                consumed
+            })
+            .unwrap();
+        assert_eq!(calls, 1);
+        assert!(l.input().is_none());
+        let bytes = commit(&mut c, &mut p, a.first);
+        let record =
+            decode_shell_file_native_launcher_transaction(&bytes, ShellFileKind::NativeInputAck)
+                .unwrap();
+        let ShellNativeLauncherRecord::InputAck(ack) = record.record else {
+            panic!("ACK")
+        };
+        assert_eq!(ack.disposition, if consumed { 1 } else { 2 });
+        assert_eq!(ack.event.state_revision, 2);
+        assert_eq!(record.transaction, tx(51));
+    }
+}
+
+#[test]
+fn edit_is_not_called_under_pressure_or_for_uneditable_input() {
+    let (mut c, _p, mut l) = shown();
+    input(&mut l, NativeLauncherInputKind::Text, 1);
+    c.apply_native_input(&mut l, tx(51), None, |_| panic!("uneditable"))
+        .unwrap();
+    for n in 0..62 {
+        c.enqueue_native_input_response(tx(100 + n), ack(), None)
+            .unwrap();
+    }
+    input(&mut l, NativeLauncherInputKind::Text, 2);
+    for _ in 0..2 {
+        assert!(matches!(
+            c.apply_native_input(&mut l, tx(52), None, |_| panic!("full queue")),
+            Err(ShellClientError::QueueSaturated)
+        ));
+    }
+    assert!(l.input().unwrap().1.editable);
+}
+
+#[test]
+fn panicking_edit_fails_closed_and_cannot_be_replayed() {
+    let (mut c, _p, mut l) = shown();
+    input(&mut l, NativeLauncherInputKind::Text, 2);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = c.apply_native_input(&mut l, tx(51), None, |_| panic!("application edit"));
+    }));
+    assert!(result.is_err());
+    assert_eq!(l.state(), NativeLifecycleState::Failed);
+    assert!(l.presented().is_none() && l.input().is_none());
+    assert!(
+        c.apply_native_input(&mut l, tx(51), None, |_| panic!("replay"))
+            .is_err()
+    );
 }

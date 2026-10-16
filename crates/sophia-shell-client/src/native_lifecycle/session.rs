@@ -171,6 +171,26 @@ impl NativeLauncherSession {
             ))?;
         Ok(TransactionId::from_raw(self.next_transaction))
     }
+    /// Reserve capacity before invoking an editable input's callback, then
+    /// commit consumed/stale according to its result. Panic fails closed.
+    pub fn apply_input(
+        &mut self,
+        activate: bool,
+        edit: impl FnOnce(&NativeLauncherInput) -> bool,
+    ) -> Result<Admission, ShellClientError> {
+        let count = if activate { 2 } else { 1 };
+        let first = self.transaction(count)?;
+        let ack = TransactionId::from_raw(self.next_transaction + count - 1);
+        let a = self.connection.apply_native_input(
+            &mut self.lifecycle,
+            ack,
+            activate.then_some(first),
+            edit,
+        )?;
+        self.next_transaction += count;
+        self.head = None;
+        Ok(a)
+    }
     pub fn prepare_input(
         &mut self,
         disposition: u16,

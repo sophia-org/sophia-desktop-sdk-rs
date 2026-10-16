@@ -34,6 +34,23 @@ pub struct NativeInputStatus {
     pub ack_due_ms: u64,
 }
 
+/// Metadata of the last Presented candidate in the current opening. It is
+/// evidence of presentation, not a claim that its focus is still eligible.
+pub struct NativePresentation<'a> {
+    pub transaction: TransactionId,
+    pub ticket: Ticket,
+    pub opening: u64,
+    pub generation: u64,
+    pub output: ContentOutputId,
+    pub allocation: ContentAllocationId,
+    pub catalog_generation: u64,
+    pub state_revision: u64,
+    pub interaction_generation: u64,
+    pub presentation_epoch: u64,
+    pub selected: u16,
+    pub rows: &'a [u16],
+}
+
 #[derive(Clone, Copy)]
 struct Candidate {
     transaction: TransactionId,
@@ -123,6 +140,22 @@ impl NativeLauncherLifecycle {
     }
     pub fn focus(&self) -> Option<&NativeLauncherBinding> {
         self.focus.as_ref()
+    }
+    pub fn presented(&self) -> Option<NativePresentation<'_>> {
+        self.shown.as_ref().map(|v| NativePresentation {
+            transaction: v.transaction,
+            ticket: v.ticket,
+            opening: v.opening,
+            generation: v.generation,
+            output: v.output,
+            allocation: v.allocation,
+            catalog_generation: v.catalog,
+            state_revision: v.revision,
+            interaction_generation: v.interaction,
+            presentation_epoch: v.presentation,
+            selected: v.selected,
+            rows: &v.rows[..v.row_count],
+        })
     }
     pub fn revision(&self) -> u64 {
         if self.opening.is_some() {
@@ -243,6 +276,50 @@ pub struct NativeInputReservation<'a> {
     ack_slot: usize,
 }
 impl NativeInputReservation<'_> {
+    fn apply(
+        mut self,
+        edit: impl FnOnce(&NativeLauncherInput) -> bool,
+    ) -> Result<Admission, ShellClientError> {
+        // Prepare both dispositions before application code runs. They keep
+        // the exact header/transaction and have equal wire size, so choosing
+        // after the edit cannot allocate or lose the reserved queue credit.
+        let prepared = self.reservation.prepared.as_ref().unwrap();
+        let bytes = prepared.last_bytes();
+        let header = decode_shell_file_record(bytes, ShellFileClass::Candidate)
+            .map_err(sophia_shell_protocol::shell_files::ShellFilePayloadError::from)?
+            .header;
+        let mut value =
+            decode_shell_file_native_launcher_transaction(bytes, ShellFileKind::NativeInputAck)?;
+        let ShellNativeLauncherRecord::InputAck(ack) = &mut value.record else {
+            unreachable!()
+        };
+        ack.disposition = 2;
+        let stale =
+            encode_shell_file_native_launcher_transaction(header, &value)?.into_boxed_slice();
+        assert_eq!(stale.len(), bytes.len());
+        let (input, status) = self.lifecycle.input.as_ref().unwrap();
+        let edited = if status.editable {
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| edit(input))) {
+                Ok(value) => value,
+                Err(panic) => {
+                    // The edit may have happened before unwinding. Never let
+                    // a caught panic make this event eligible for a second edit.
+                    self.lifecycle.end(NativeLifecycleState::Failed);
+                    std::panic::resume_unwind(panic);
+                }
+            }
+        } else {
+            false
+        };
+        if !edited && self.activation.is_none() {
+            self.reservation
+                .prepared
+                .as_mut()
+                .unwrap()
+                .replace_last_same_size(stale);
+        }
+        Ok(self.commit())
+    }
     pub fn status(&self) -> NativeInputStatus {
         self.lifecycle.input.as_ref().unwrap().1
     }
@@ -259,6 +336,20 @@ impl NativeInputReservation<'_> {
 }
 
 impl ShellConnection {
+    /// Reserve before calling `edit`, once, and only for editable input. True
+    /// means consumed; false means stale. Activation is consumed without an
+    /// edit callback. A callback panic fails the lifecycle closed and resumes
+    /// unwinding, because its external effects cannot safely be replayed.
+    pub fn apply_native_input(
+        &mut self,
+        lifecycle: &mut NativeLauncherLifecycle,
+        ack_transaction: TransactionId,
+        activation_transaction: Option<TransactionId>,
+        edit: impl FnOnce(&NativeLauncherInput) -> bool,
+    ) -> Result<Admission, ShellClientError> {
+        self.prepare_native_input(lifecycle, ack_transaction, 1, activation_transaction)?
+            .apply(edit)
+    }
     /// Atomically admit the exact candidate and its presentation metadata.
     /// The caller supplies a currently valid allocation, accepted resources and
     /// permit; this helper checks opening/catalog/facts/revision, not their

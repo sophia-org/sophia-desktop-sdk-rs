@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 12, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 13, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -276,8 +276,21 @@ Five Rust facade controls cover initialization, retained input, response Drop,
 transaction exhaustion, clocks, disconnect and action hints. C independently
 checks that rereading an Action does not restart its hint, alongside its existing
 head and obligation controls. Full Rust workspace tests, strict Clippy, the final
-35 native tests and C's full suite pass. This does not close the whole helper
-inventory: explicit presentation-state access and the input edit-callback
-convenience still need operation-level review. Delayed native reservations,
-other non-content batches and configurable queues also remain open.
+35 native tests and C's full suite pass. Rust `presented` now exposes borrowed metadata/rows for the last Presented
+candidate, matching C `sophia_ns_presented`; Prepared alone never supplies it,
+and close/failure clears it. Neither accessor proves current focus eligibility.
+Rust `apply_native_input` and owning-session `apply_input` match C
+`sophia_ns_input_apply`: reserve before editable application code, invoke once,
+then choose Consumed or Stale from its result. Uneditable input invokes no edit.
+Rust pre-encodes both equal-size dispositions before the callback; selecting and
+committing afterwards allocates nothing. C mutates its fixed record then commits.
+A Rust callback panic fails the lifecycle closed and resumes unwinding, since
+external edits cannot be replayed safely; C callbacks must return normally.
+
+Independent tests cover a declined edit's Stale ACK. Rust additionally tests both
+wire dispositions, full-queue suppression, uneditable input and caught panic;
+C's existing tests cover reserve-before-edit and repeated heads. Full Rust tests,
+strict Clippy and C tests pass; the native Rust suite now has 38 tests. Delayed
+native reservations, other non-content batches and configurable queues remain
+open.
 These gaps still block full t333 parity and production adoption.

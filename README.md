@@ -97,6 +97,10 @@ automatic transaction IDs, prepared responses, bounded `dispatch` and scheduling
 `obligations`. Its two supplied clocks are transport `Instant` and host monotonic
 milliseconds. Response Drop keeps the event; commit consumes it. Fetched
 catalog/facts observations must be installed by the caller before presenting.
+`presented` returns borrowed metadata for the last Presented candidate.
+`apply_input` reserves before an editable input callback and commits its result
+as Consumed or Stale. A callback panic fails the lifecycle closed and resumes
+unwinding; it cannot safely replay an edit whose external effects are unknown.
 Never use local admission as proof of presentation or application startup.
 
 The protocol crate also carries the descriptor, tabs, shortcut/reference and

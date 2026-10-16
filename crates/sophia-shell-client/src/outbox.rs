@@ -44,6 +44,18 @@ pub(crate) struct PreparedQueue {
     bytes: usize,
     control: bool,
 }
+impl PreparedQueue {
+    pub(crate) fn last_bytes(&self) -> &[u8] {
+        self.frames.last().unwrap().bytes.as_deref().unwrap()
+    }
+    /// Caller has encoded an alternative for the same record identity. Equal
+    /// size preserves the reserved capacity and wire's staged record metadata.
+    pub(crate) fn replace_last_same_size(&mut self, bytes: Box<[u8]>) {
+        let frame = self.frames.last_mut().unwrap();
+        assert_eq!(frame.len, bytes.len());
+        frame.bytes = Some(bytes);
+    }
+}
 impl ClientOutbox {
     pub(crate) fn reserve_capacity(
         &mut self,

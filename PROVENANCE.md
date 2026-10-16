@@ -1,5 +1,17 @@
 # Provenance
 
+## t333 presentation access and input edit convenience
+
+`presented` exposes borrowed presentation metadata and row slots, separately
+from focus eligibility. `apply_native_input` and session `apply_input` reserve
+before the edit and pre-encode both ACK dispositions before application code
+runs. Choosing the result and committing need no allocation or I/O. Panic fails
+the lifecycle closed before resuming unwinding, preventing replay after a caught
+panic. Three new tests check both wire dispositions, pressure/uneditable-input
+suppression and panic. Presentation checks cover Prepared, Presented and close.
+Full workspace tests (38 native), strict Clippy and C's full suite pass; C adds
+the independent declined-edit control. Production-export acceptance is pending.
+
 ## t333 owning native session
 
 `NativeLauncherSession` integrates exclusive connection ownership, retained
