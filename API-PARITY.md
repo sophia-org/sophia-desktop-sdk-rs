@@ -600,3 +600,6 @@ claim, preserving client uncertainty and the server's queued/dispatched boundary
 
 Admin map 12 adds explicit fresh-service recovery with a different command,
 preserved old uncertainty and isolation from an old ticket's late completion.
+
+Admin map 13 adds paired abrupt service-process death before/after claim,
+with retained uncertainty and no automatic retry.

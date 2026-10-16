@@ -1,6 +1,6 @@
 # Administrative SDK parity
 
-Revision 12, 2026-10-16. Both SDKs now have developing administrative sessions
+Revision 13, 2026-10-16. Both SDKs now have developing administrative sessions
 and caller-connected socket facades. Qualification remains t333 work.
 
 The pinned file contract is copied unchanged from Sophia
@@ -193,3 +193,13 @@ owner's Rejected result does. The old command remains uncertain throughout.
 No uncertain mutation is replayed. All three production SDK tests pass for
 each peer. Abrupt process death and remaining integrated negative schedules
 remain separate qualification work.
+
+Both peers also pass abrupt death of a test-owned production service process
+before and after command claim. The parent waits for the accepted/claimed
+fixture marker, kills that exact child and waits for its non-success exit.
+Each SDK retains uncertain custody and refuses another invocation. The effect
+marker exists only in the claimed schedule. A replacement service gets a new
+endpoint; the old endpoint refuses connection. All four external SDK gates
+pass for each peer. The shared fixture's existing runtime-client crash gate
+also passes. Integrated malformed/partial traffic, namespace denial and
+release-wide parity remain separate audit items.
