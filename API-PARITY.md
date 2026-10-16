@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 47, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 48, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -554,3 +554,8 @@ Lock map 7 adds paired candidate C/Rust production upload/presentation and
 protected idle-revocation gates. The new C obligations query matches Rust's
 passive progress inspection without exposing private state. SDK reauthentication,
 in-flight upload revocation and the release-wide negative-case audit remain open.
+Lock map 8 adds paired protected revocation of an unfinished upload with a
+settled prefix and queued tail. [Administration](ADMIN-PARITY.md) now pins the
+accepted file contract and names the missing operations in both SDKs. Broker
+files remain design-only under Sophia t314; portal requester and recipient
+interfaces need separate typed coverage and must not share authority.

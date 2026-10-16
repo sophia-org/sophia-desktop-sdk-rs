@@ -1,6 +1,6 @@
 # Experimental lock SDK parity
 
-Revision 7, 2026-10-16. The pinned lock file contract remains draft.
+Revision 8, 2026-10-16. The pinned lock file contract remains draft.
 C reference: `86b3e89` plus the progress-query/peer change in this series;
 `src/sophia_lock_client.h` and `src/lock_files/*.c`.
 Rust `sophia-lock-client` integrates the experimental session and now has paired
@@ -121,3 +121,13 @@ arguments, explicit retry, held/drained writes, disconnect and production ACKs.
 C leaves deadline tracking to its caller. For EOF, C reports FAILED with the
 service error; Rust distinguishes Closed. Both terminate without reconnecting
 and preserve the latest custody result.
+Both peers now also pass protected unfinished-upload revocation. A four-byte
+prefix of a 16-byte resource is written and acknowledged. The SDK queues its
+remaining twelve bytes with a zero I/O budget and reports one pending write;
+the parent revokes launch authority before allowing the peer to resume. No
+resource or candidate may reach Session. Both clients terminate, preserve
+ResourceBegin custody, clear pending work and refuse End/Cancel. Rust returns
+the same owned tail buffer after termination. This is a queued-tail schedule,
+not a claim that revocation interrupted a partially transmitted wire payload.
+The existing raw in-place-fragment test owns that separate boundary. Fresh
+authorized replacement/recovery and SDK reauthentication still need audit.
