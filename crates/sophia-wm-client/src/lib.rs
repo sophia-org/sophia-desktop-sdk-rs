@@ -1,7 +1,7 @@
 //! WM client implementation in progress. Typed candidates own immutable bytes;
 //! file startup, negotiation, ordered events and custody use the 9P pipeline.
-//! Cycle-bound snapshot fetching and complete release qualification remain
-//! pending. Startup, journal and submission modules are provisional interfaces.
+//! Snapshots are bound to their retained Cycle. Complete release qualification
+//! remains pending; startup, journal and submission are provisional interfaces.
 mod candidate;
 pub use candidate::{Candidate, EncodedCandidate};
 pub use sophia_wm_protocol as protocol;
@@ -9,6 +9,7 @@ pub use sophia_wm_protocol as protocol;
 #[doc(hidden)]
 pub mod journal;
 mod session;
+mod snapshot;
 /// Startup implementation used by the developing session driver. Not a
 /// negotiated WM session or a stable application entrypoint yet.
 #[doc(hidden)]

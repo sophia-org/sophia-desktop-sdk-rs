@@ -6,7 +6,7 @@ use crate::{
 };
 use sophia_9p_client::pipeline::{IoBudget, IoInterest, Pipeline, PipelineError, Reply};
 use sophia_9p_records::{Fid, Tag};
-use sophia_wm_protocol::wm_files::{WmFileHeader, WmFileLimits};
+use sophia_wm_protocol::wm_files::{WmFileHeader, WmFileLimits, WmFileSnapshot};
 use std::os::fd::{AsFd, BorrowedFd};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -27,6 +27,7 @@ pub enum SessionError {
     Deadline,
     Closed,
     NotReady,
+    SnapshotBusy,
 }
 impl From<PipelineError> for SessionError {
     fn from(e: PipelineError) -> Self {
@@ -45,8 +46,8 @@ impl From<crate::submission::Error> for SessionError {
 }
 
 /// Developing WM session: negotiation, ordered events and candidate custody.
-/// Cycle-bound snapshot fetching is still missing; this is not a complete WM
-/// client release. The session owns all I/O on its supplied pipeline.
+/// Includes Cycle-bound snapshot fetching, but release qualification remains
+/// incomplete. The session owns all I/O on its supplied pipeline.
 pub struct Session {
     wire: Option<Pipeline>,
     root: Fid,
@@ -58,6 +59,7 @@ pub struct Session {
     limits: WmFileLimits,
     journal: Journal,
     submission: Submission,
+    snapshot: crate::snapshot::Snapshot,
     event_tag: Option<Tag>,
     ack_tag: Option<Tag>,
     tx_tag: Option<Tag>,
@@ -89,6 +91,7 @@ impl Session {
             limits: opened.limits,
             journal,
             submission,
+            snapshot: crate::snapshot::Snapshot::new(),
             event_tag: None,
             ack_tag: None,
             tx_tag: None,
@@ -151,6 +154,37 @@ impl Session {
         self.dirty = true;
         Ok(())
     }
+    /// Freeze identity from the retained Cycle before consuming it. One fetch
+    /// or borrowed result may exist at a time; reading never selects a new Cycle.
+    pub fn request_snapshot(&mut self, deadline: u64) -> Result<(), SessionError> {
+        if let Some(error) = &self.error {
+            return Err(error.clone());
+        }
+        let Some((_, Event::Cycle(cycle))) = self.journal.head() else {
+            return Err(SessionError::Protocol("snapshot requires retained Cycle"));
+        };
+        self.snapshot.request(
+            cycle,
+            self.journal.selected().ok_or(SessionError::NotReady)?,
+            self.now,
+            deadline,
+        )?;
+        self.dirty = true;
+        Ok(())
+    }
+    pub fn snapshot_result(&self) -> Option<&WmFileSnapshot> {
+        if self.error.is_some() {
+            None
+        } else {
+            self.snapshot.result()
+        }
+    }
+    pub fn release_snapshot(&mut self) -> Result<(), SessionError> {
+        if let Some(error) = &self.error {
+            return Err(error.clone());
+        }
+        self.snapshot.release()
+    }
     pub fn submit(&mut self, candidate: &Candidate, deadline: u64) -> Result<u64, SessionError> {
         if let Some(error) = &self.error {
             return Err(error.clone());
@@ -181,6 +215,7 @@ impl Session {
             self.bootstrap_deadline,
             self.submission.deadline(),
             self.journal.fragment_deadline(),
+            self.snapshot.deadline(),
         ]
         .into_iter()
         .flatten()
@@ -190,10 +225,14 @@ impl Session {
         if self.error.is_some() {
             None
         } else {
-            [self.deadline(), self.submission.retry_at()]
-                .into_iter()
-                .flatten()
-                .min()
+            [
+                self.deadline(),
+                self.submission.retry_at(),
+                self.snapshot.retry_at(),
+            ]
+            .into_iter()
+            .flatten()
+            .min()
         }
     }
     fn progress(&self) -> Progress {
@@ -267,6 +306,7 @@ impl Session {
     }
     fn finish(&mut self, error: SessionError) -> Result<(), SessionError> {
         self.submission.disconnect();
+        self.snapshot.clear();
         self.wire.take();
         self.state = if self.remote_error == Some(116) {
             SessionState::Stale
@@ -288,7 +328,7 @@ impl Session {
         let mut tx_reply = None;
         let mut failure = None;
         let mut progress = false;
-        // Only events, ACK and one submission request can be outstanding here.
+        // Events, ACK, one submission and one snapshot request may be outstanding.
         for _ in 0..8 {
             let Some((tag, reply)) = self.wire.as_mut().and_then(Pipeline::take_reply) else {
                 break;
@@ -320,6 +360,8 @@ impl Session {
                     Reply::Read(_) => Err(SessionError::Closed),
                     _ => Err(SessionError::Protocol("event read refused")),
                 }
+            } else if self.snapshot.tag() == Some(tag) {
+                self.snapshot.reply(reply, self.now)
             } else if self.ack_tag == Some(tag) {
                 self.ack_tag = None;
                 if reply == Reply::Write(16) {
@@ -410,11 +452,12 @@ impl Session {
                 None => (),
             }
         }
+        queued |= self.snapshot.drive(wire, self.root, self.now)?;
         Ok(queued)
     }
 }
 
-fn busy(error: &PipelineError) -> bool {
+pub(crate) fn busy(error: &PipelineError) -> bool {
     matches!(
         error,
         PipelineError::Limit(

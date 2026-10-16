@@ -59,12 +59,70 @@ fn submitted(id: u64, kind: u16, sequence: u64) -> Vec<u8> {
     record(17, sequence, &body)
 }
 
+fn cycle_bytes() -> Vec<u8> {
+    let mut body = vec![];
+    for n in [55u64, 56, 31, 9, 3] {
+        body.extend(n.to_le_bytes());
+    }
+    body.extend(0u16.to_le_bytes());
+    body.extend(1u16.to_le_bytes());
+    body.extend([0; 4]);
+    body.extend(1u64.to_le_bytes());
+    record(22, 3, &body)
+}
+fn snapshot_bytes(mode: u8) -> Vec<u8> {
+    // Pinned independent golden output row; construct the surrounding file
+    // without using the snapshot encoder under test.
+    let corpus = include_str!("../../../spec/golden/sophia-wm-v1.records");
+    let hex = corpus
+        .lines()
+        .find_map(|s| s.strip_prefix("snapshot_output|"))
+        .unwrap();
+    let mut row: Vec<u8> = (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+        .collect();
+    // This minimal scene has no surfaces, so clear the golden row's focus.
+    row[16..24].fill(0);
+    let mut body = vec![];
+    for n in [55u64, 9, 1] {
+        body.extend(n.to_le_bytes());
+    }
+    body.extend(1u16.to_le_bytes());
+    body.extend([0; 6]);
+    body.extend(1u16.to_le_bytes());
+    body.extend([0; 2]);
+    body.extend(1u32.to_le_bytes());
+    body.extend((row.len() as u32).to_le_bytes());
+    body.extend([0; 4]);
+    body.extend(row);
+    let mut bytes = record(2, 0, &body);
+    match mode {
+        2 => bytes[32] = 54,
+        3 => bytes[40] = 8,
+        4 => bytes[8] = 8,
+        5 => {
+            bytes.pop();
+        }
+        6 => bytes.push(0),
+        11 => bytes[..4].copy_from_slice(&1_048_577u32.to_le_bytes()),
+        _ => (),
+    }
+    bytes
+}
+
 struct Report {
     candidates: usize,
     retries: usize,
     acked: u64,
+    snapshot_opens: usize,
 }
-fn fixture(event_first: bool, retry: bool, eof: bool) -> (Session, thread::JoinHandle<Report>) {
+fn fixture(
+    event_first: bool,
+    retry: bool,
+    eof: bool,
+    snapshot: u8,
+) -> (Session, thread::JoinHandle<Report>) {
     let (client, mut peer) = UnixStream::pair().unwrap();
     peer.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
     let server = thread::spawn(move || {
@@ -76,6 +134,7 @@ fn fixture(event_first: bool, retry: bool, eof: bool) -> (Session, thread::JoinH
             candidates: 0,
             retries: 0,
             acked: 0,
+            snapshot_opens: 0,
         };
         let mut old_submit = None;
         let mut offset = 0u64;
@@ -118,11 +177,24 @@ fn fixture(event_first: bool, retry: bool, eof: bool) -> (Session, thread::JoinH
                     peer.write_all(&frame(111, tag, &body)).unwrap();
                 }
                 12 => {
+                    if files[&fid] == "snapshot" {
+                        report.snapshot_opens += 1;
+                        if (snapshot == 7 && report.snapshot_opens == 1) || snapshot == 10 {
+                            peer.write_all(&frame(7, tag, &11u32.to_le_bytes()))
+                                .unwrap();
+                            continue;
+                        }
+                    }
                     let mut body = qid(false);
-                    body.extend(0u32.to_le_bytes());
+                    body.extend(if files[&fid] == "snapshot" { 7u32 } else { 0 }.to_le_bytes());
                     peer.write_all(&frame(13, tag, &body)).unwrap();
                 }
                 116 => {
+                    if files[&fid] == "snapshot" && snapshot == 8 {
+                        peer.write_all(&frame(7, tag, &11u32.to_le_bytes()))
+                            .unwrap();
+                        continue;
+                    }
                     let at = u64::from_le_bytes(b[4..12].try_into().unwrap());
                     let count = u32::from_le_bytes(b[12..16].try_into().unwrap()) as usize;
                     if files[&fid] == "events" {
@@ -142,6 +214,7 @@ fn fixture(event_first: bool, retry: bool, eof: bool) -> (Session, thread::JoinH
                                 b"sophia-wm-files version=1 output_transport=9p2000.L\n".to_vec()
                             }
                             "limits" => limits(),
+                            "snapshot" => snapshot_bytes(snapshot),
                             _ => panic!("unexpected read"),
                         };
                         let at = at as usize;
@@ -186,6 +259,9 @@ fn fixture(event_first: bool, retry: bool, eof: bool) -> (Session, thread::JoinH
                             if kind == 256 {
                                 queued.extend(record(16, 1, &128u64.to_le_bytes()));
                                 queued.extend(submitted(id, kind, 2));
+                                if snapshot != 0 {
+                                    queued.extend(cycle_bytes());
+                                }
                             } else {
                                 assert_eq!(kind, 263);
                                 queued.extend(submitted(id, kind, 3));
@@ -216,6 +292,11 @@ fn fixture(event_first: bool, retry: bool, eof: bool) -> (Session, thread::JoinH
                     }
                 }
                 120 => {
+                    if files[&fid] == "snapshot" && snapshot == 9 {
+                        files.remove(&fid);
+                        peer.write_all(&frame(7, tag, &5u32.to_le_bytes())).unwrap();
+                        continue;
+                    }
                     files.remove(&fid);
                     peer.write_all(&frame(121, tag, &[])).unwrap();
                 }
@@ -260,7 +341,7 @@ fn drive_until(s: &mut Session, now: &mut u64, done: impl Fn(&Session) -> bool) 
 #[test]
 fn negotiated_session_submits_retries_and_drains_ordered_events_over_real_pipeline() {
     for (event_first, retry) in [(true, false), (false, false), (true, true)] {
-        let (mut s, peer) = fixture(event_first, retry, false);
+        let (mut s, peer) = fixture(event_first, retry, false, 0);
         let mut now = 10;
         drive_until(&mut s, &mut now, |s| {
             s.state() == SessionState::Ready && s.acked() >= 2
@@ -302,7 +383,7 @@ fn negotiated_session_submits_retries_and_drains_ordered_events_over_real_pipeli
 
 #[test]
 fn final_journal_bytes_preserve_custody_on_eof() {
-    let (mut s, peer) = fixture(false, false, true);
+    let (mut s, peer) = fixture(false, false, true, 0);
     let mut now = 10;
     drive_until(&mut s, &mut now, |s| {
         s.state() == SessionState::Ready && s.acked() >= 2
@@ -336,5 +417,76 @@ fn final_journal_bytes_preserve_custody_on_eof() {
     }
     assert_eq!(s.custody(id), Some(Custody::Submitted));
     assert!(s.fd().is_none());
+    peer.join().unwrap();
+}
+
+#[test]
+fn snapshot_freezes_cycle_identity_and_requires_verified_eof_and_clunk() {
+    for mode in [1, 7] {
+        let (mut s, peer) = fixture(true, false, false, mode);
+        let mut now = 10;
+        assert!(s.request_snapshot(100_000).is_err());
+        drive_until(&mut s, &mut now, |s| s.event().is_some());
+        s.request_snapshot(now + 100_000).unwrap();
+        assert_eq!(
+            s.request_snapshot(now + 100_000),
+            Err(SessionError::SnapshotBusy)
+        );
+        // Fetch is bound before consumption; later journal work cannot retarget it.
+        s.consume().unwrap();
+        drive_until(&mut s, &mut now, |s| s.snapshot_result().is_some());
+        let value = s.snapshot_result().unwrap();
+        assert_eq!(value.transaction.raw(), 55);
+        assert_eq!(value.snapshot.scene.generation, 9);
+        assert_eq!(value.snapshot.scene.outputs.len(), 1);
+        s.release_snapshot().unwrap();
+        assert!(s.snapshot_result().is_none());
+        assert_eq!(s.release_snapshot(), Err(SessionError::NotReady));
+        assert!(s.request_snapshot(now + 100_000).is_err());
+        s.close();
+        let report = peer.join().unwrap();
+        assert_eq!(report.snapshot_opens, if mode == 7 { 2 } else { 1 });
+    }
+}
+
+#[test]
+fn snapshot_rejects_identity_length_and_eof_mismatches() {
+    for mode in [2, 3, 4, 5, 6, 8, 9, 11] {
+        let (mut s, peer) = fixture(true, false, false, mode);
+        let mut now = 10;
+        drive_until(&mut s, &mut now, |s| s.event().is_some());
+        s.request_snapshot(now + 100_000).unwrap();
+        s.consume().unwrap();
+        let end = Instant::now() + Duration::from_secs(2);
+        while s.error().is_none() {
+            assert!(Instant::now() < end);
+            now += 1;
+            let _ = s.dispatch(now, 65536);
+            thread::yield_now();
+        }
+        assert!(s.snapshot_result().is_none());
+        assert!(s.fd().is_none());
+        peer.join().unwrap();
+    }
+}
+
+#[test]
+fn snapshot_open_retries_do_not_extend_the_original_deadline() {
+    let (mut s, peer) = fixture(true, false, false, 10);
+    let mut now = 10;
+    drive_until(&mut s, &mut now, |s| s.event().is_some());
+    let deadline = now + 100;
+    s.request_snapshot(deadline).unwrap();
+    s.consume().unwrap();
+    let end = Instant::now() + Duration::from_secs(2);
+    while s.error().is_none() {
+        assert!(Instant::now() < end);
+        now += 1;
+        let _ = s.dispatch(now, 65536);
+        thread::yield_now();
+    }
+    assert_eq!(s.error(), Some(&SessionError::Deadline));
+    assert_eq!(now, deadline);
+    assert!(s.snapshot_result().is_none());
     peer.join().unwrap();
 }

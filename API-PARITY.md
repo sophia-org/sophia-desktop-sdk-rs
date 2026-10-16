@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 22, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 23, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -460,3 +460,14 @@ and EOF after Submitted. All 32 WM client tests and strict Clippy pass.
 This closes the driver connection gap above, not WM parity: snapshot fetching,
 direct nonblocking version startup, handoff-capacity validation and complete
 paired production-export qualification remain. C's existing driver is unchanged.
+
+Rust now exposes `request_snapshot`, `snapshot_result` and `release_snapshot`
+against C's `sophia_ws_snapshot` family. A request freezes the retained Cycle's
+epoch, transaction and scene generation. The driver bounds bytes to 1 MiB,
+checks the declared length and EOF, and waits for clunk before exposing decoded
+rows. It allows one fetch/result, retries only pre-open EAGAIN with bounded
+backoff and never extends the original deadline. Socket-peer scenarios cover
+fragmented reads, Cycle consumption, pre-open retry, identity/length/EOF
+mismatches, read/clunk refusal and expiry. All 35 WM client tests and strict
+Clippy pass. Direct nonblocking version startup, handoff capacity checks and
+paired export qualification remain; no production pin or C implementation changed.

@@ -14,7 +14,7 @@ Sophia checkout to build.
 | `sophia-shell-protocol` | The shell's typed records and the `sophia_shell_fs_v1` file contract codec. |
 | `sophia-shell-client` | The shell client over the file contract. |
 | `sophia-wm-protocol` | The WM file codecs and passive policy records; no session client yet. |
-| `sophia-wm-client` | Developing WM session with negotiation, events and custody; snapshot fetching remains missing. |
+| `sophia-wm-client` | Developing WM session with negotiation, events, custody and Cycle-bound snapshots. |
 | `sophia-lock-protocol` | The lock provider's `sophia_lock_fs_v1` file contract codec (experimental; see Contracts). |
 
 The shell role is the only one with a full role client here. The lock provider
@@ -33,8 +33,12 @@ Drive it with monotonic milliseconds and a byte budget; inspect socket interests
 and the wake deadline before sleeping. `event` retains one application head
 until `consume`. `submit` returns a local custody ticket; `custody` distinguishes
 Submitted from refusal and uncertain disconnect. Submitted does not establish
-scene commit. This interface still lacks Cycle-bound snapshot fetching and
-has not passed production-export qualification.
+scene commit. Call `request_snapshot` while its Cycle is the retained head;
+the request freezes the expected epoch, transaction and scene generation before
+the event is consumed. `snapshot_result` borrows the verified object only after
+EOF and clunk; `release_snapshot` frees the result for another fetch. One fetch
+or retained result is allowed at a time. This interface has not passed
+production-export qualification.
 
 For an external level-triggered event loop, `ShellConnection` implements
 `AsFd` and exposes `io_interest()` alongside `wake_deadline()`. Drive `poll_io`
