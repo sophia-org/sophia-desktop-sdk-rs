@@ -1,6 +1,6 @@
 # Portal SDK parity
 
-Revision 18, 2026-10-16. Recipient components are developing; there is no complete
+Revision 19, 2026-10-16. Recipient components are developing; there is no complete
 portal client or parity claim.
 
 The unchanged recipient contract in `spec/portal-client-files.md` comes from
@@ -293,3 +293,17 @@ Clippy pass. Deterministic flush/reply races and shared-session failure tests
 remain; production scenarios do not qualify every ordering. Shared capture
 requests and frame reads are still missing, as are the remaining recovery,
 trusted requester/broker and release gates.
+
+
+Independent shared-session peers now force five cases: Rflush alone, watch
+ESTALE before Rflush, failed watch clunk after that revocation, an error reply
+to Tflush, and disconnect during flush. One-byte dispatch preserves foreground
+status work in the two successful cases; explicit releases leave only the
+original root. Terminal failures hide both the watch event and snapshot result.
+Each case checks one version/attach, one watch and one flush with the exact
+old tag. Backwards caller time is refused without poisoning the session.
+
+These tests pass in native C and Rust. Production code is unchanged. They do
+not yet force a reply already decoded when cancellation is requested, malformed
+watch reads during flush, or every pre-read cancellation stage. Those cases,
+shared frame/capture composition and the remaining release gates stay open.
