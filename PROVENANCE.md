@@ -1,5 +1,16 @@
 # Provenance
 
+## t333 native pointer responses
+
+The lifecycle retains Actions until required ACK admission and constructs exact
+pointer activation/ACK pairs from current focus and displayed rows. A prepared
+response can be dropped without consuming the action. Queue failure changes no
+ownership; commit tracks separate custody tickets. Both SDKs independently test
+activation of a displayed nonselected row. Rust also checks stale and cancelled
+actions, exact wire records, saturation and each split-refusal order. Full
+workspace tests, strict all-target Clippy and the final 30 native tests pass;
+C's full suite passes. Production-export acceptance remains pending.
+
 ## t333 explicit resource cancellation parity
 
 C now exposes `sophia_ns_resource_cancel`, matching Rust's explicit-resource

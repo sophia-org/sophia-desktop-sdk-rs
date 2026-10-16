@@ -434,6 +434,24 @@ impl FileWire {
             return Err(ShellClientError::MissingCapability);
         }
         match outbound {
+            Outbound::NativeActionResponse {
+                transaction,
+                ack,
+                activation,
+            } => {
+                self.require_native_launcher()?;
+                let mut records = Vec::with_capacity(2);
+                if let Some((tx, activation)) = activation {
+                    records.push(self.encode_native_record(&ShellFileNativeLauncherRecord {
+                        transaction: tx,
+                        record: sophia_shell_protocol::ShellNativeLauncherRecord::Activate(
+                            activation,
+                        ),
+                    })?);
+                }
+                records.push(self.action_ack(transaction, ack)?);
+                Ok(self.stage_records(records))
+            }
             Outbound::Native(value) => {
                 let bytes = self.encode_native_record(&value)?;
                 Ok(self.stage_records(vec![bytes]))

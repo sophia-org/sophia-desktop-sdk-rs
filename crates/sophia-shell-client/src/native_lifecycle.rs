@@ -12,6 +12,8 @@ mod resources;
 pub use resources::{NativeAllocationParams, NativeResourceState};
 mod pacing;
 pub use pacing::NativeScene;
+mod action;
+pub use action::{NativeActionReservation, NativeActionStatus};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NativeLifecycleState {
@@ -43,14 +45,17 @@ struct Candidate {
     interaction: u64,
     presentation: u64,
     selected: u16,
+    rows: [u16; 32],
+    row_count: usize,
 }
 
-/// Feed observations in wire order, exactly once. A retained input must be
-/// answered through `prepare_native_input` before another observation is fed.
+/// Feed observations in wire order, exactly once. A retained input or action
+/// owing an ACK must be answered before another observation is fed.
 /// Re-read `input()` when local admission is busy; it never reapplies an edit.
 /// Allocation/resource and frame-demand helpers track their own custody. Use
 /// `present_native_scene` for those checks; the lower-level candidate method
-/// only registers presentation metadata. Pointer responses remain separate.
+/// only registers presentation metadata. Use `prepare_native_action` for
+/// pointer responses and `prepare_native_input` for keyboard responses.
 pub struct NativeLauncherLifecycle {
     limits: ContentLimits,
     state: NativeLifecycleState,
@@ -67,6 +72,7 @@ pub struct NativeLauncherLifecycle {
     focus: Option<NativeLauncherBinding>,
     launched: bool,
     input: Option<(NativeLauncherInput, NativeInputStatus)>,
+    action: Option<(ContentAction, NativeActionStatus)>,
     activation: Option<(TransactionId, NativeLauncherActivation, Ticket)>,
     acks: [Option<Ticket>; 16],
     lost_acks: u8,
@@ -97,6 +103,7 @@ impl NativeLauncherLifecycle {
             focus: None,
             launched: false,
             input: None,
+            action: None,
             activation: None,
             acks: [None; 16],
             lost_acks: 0,
@@ -144,6 +151,7 @@ impl NativeLauncherLifecycle {
         self.shown = None;
         self.focus = None;
         self.input = None;
+        self.action = None;
         self.allocation = resources::Allocation::default();
         self.resources.fill(None);
         self.upload = None;
@@ -166,9 +174,10 @@ impl NativeLauncherLifecycle {
     /// The caller must preserve order across native and shared content records.
     pub fn observe(&mut self, value: &NativeLauncherObservation) -> Result<(), ShellClientError> {
         self.live()?;
-        if self.input.is_some() {
-            return Err(ShellClientError::InvalidArgument("native input awaits ACK"));
+        if self.input.is_some() || self.action.as_ref().is_some_and(|(_, s)| s.ack_owed) {
+            return Err(ShellClientError::InvalidArgument("native event awaits ACK"));
         }
+        self.action = None;
         if let Err(error) = self.apply(value) {
             self.end(NativeLifecycleState::Failed);
             return Err(error);
@@ -278,6 +287,7 @@ impl ShellConnection {
             || c.candidate_generation <= lifecycle.candidate_high_water
             || c.interaction_generation != 1
             || c.surfaces.len() != 1
+            || v.rows.len() > 32
         {
             return Err(ShellClientError::InvalidArgument(
                 "native candidate context",
@@ -295,7 +305,10 @@ impl ShellConnection {
             interaction: c.interaction_generation,
             presentation: 0,
             selected: v.selected,
+            rows: [0; 32],
+            row_count: v.rows.len(),
         };
+        metadata.rows[..v.rows.len()].copy_from_slice(&v.rows);
         let admission = self.enqueue_native_candidate_tracked(value)?;
         metadata.ticket = admission.first;
         lifecycle.candidate_high_water = metadata.generation;

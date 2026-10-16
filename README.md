@@ -88,9 +88,11 @@ resources. The helper waits for the server's invalidation/release records.
 permits and build candidates from current allocations and accepted resources.
 Drive `service_at` with host monotonic milliseconds. Permit deadlines and the
 caller-supplied margin are advisory; local expiry cannot authorize another
-demand before the server ends the old one. Pointer-action responses and the
-integrated facade still await parity. Never use local admission as proof of
-presentation or application startup.
+demand before the server ends the old one. `action` exposes retained pointer
+events; `prepare_native_action` reserves an exact ACK and optional activation
+of any eligible displayed row. Drop preserves the event; commit consumes it.
+Cancellation events owe no ACK. The integrated facade still awaits parity.
+Never use local admission as proof of presentation or application startup.
 
 The protocol crate also carries the descriptor, tabs, shortcut/reference and
 revision-4 launcher records, native file codecs and pure validation. This

@@ -1,4 +1,6 @@
 use super::*;
+#[path = "native_actions.rs"]
+mod actions;
 #[path = "native_resources.rs"]
 mod resources;
 

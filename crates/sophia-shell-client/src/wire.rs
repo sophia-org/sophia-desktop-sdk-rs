@@ -10,6 +10,14 @@ use sophia_shell_protocol::{
 /// One whole client-to-session unit. Named for what it means, never for how
 /// many frames a wire needs to carry it.
 pub(crate) enum Outbound {
+    NativeActionResponse {
+        transaction: TransactionId,
+        ack: ContentActionAck,
+        activation: Option<(
+            TransactionId,
+            sophia_shell_protocol::NativeLauncherActivation,
+        )>,
+    },
     Native(sophia_shell_protocol::shell_files::ShellFileNativeLauncherRecord),
     NativeCandidate(sophia_shell_protocol::shell_files::ShellFileNativeCandidate),
     NativeResponse {
@@ -60,7 +68,7 @@ impl Outbound {
                 sophia_shell_protocol::ShellNativeLauncherRecord::InputAck(_)
                 | sophia_shell_protocol::ShellNativeLauncherRecord::Activate(_)),
             Outbound::NativeCandidate(_) => false,
-            Outbound::NativeResponse { .. } => true,
+            Outbound::NativeResponse { .. } | Outbound::NativeActionResponse { .. } => true,
             Outbound::Descriptor(value) => matches!(value.record,
                 sophia_shell_protocol::shell_files::ShellDescriptorRecord::DescriptorActivationAck(_)
                 | sophia_shell_protocol::shell_files::ShellDescriptorRecord::LauncherActivationAck(_)),

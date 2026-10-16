@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 10, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 11, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -225,6 +225,26 @@ records. Full Rust tests, strict Clippy and C `make check` pass; 25 Rust native
 checks include paired allocation, resource, pacing and refusal cases. Export
 qualification, native capture and performance claims remain separate.
 
-Pointer action/ACK handling and the integrated native facade remain open, as do
-delayed native reservations, other non-content batches and configurable queues.
+## Native pointer responses
+
+C `sophia_ns_next`/`sophia_ns_action_ack` and Rust `observe`/`action`/
+`prepare_native_action` retain invocation and dismissal until their exact ACK
+is admitted. Cancellation owes no ACK. Both reject activation without current
+presentation, focus, revision and catalog eligibility, and permit any displayed
+row rather than only the keyboard selection. Both submit activation (cause 2)
+before ACK, atomically for local admission, with independent remote outcomes.
+Rust additionally exposes a prepared response: Drop preserves the action and
+commit performs no I/O or allocation. C exposes immediate atomic submission;
+it has no separate prepared pointer handle because no local text edit occurs.
+
+Independent C and Rust tests cover the nonselected row. Existing C controls
+cover busy admission, cancellation and one activation at a time. Rust controls
+also check exact encoded ACK fields, stale presentation, unknown rows, revoked
+focus, dismissal, cancellation, prepared cancellation, saturated pair admission
+and both split-refusal orders. Full Rust workspace tests, strict Clippy, the
+final 30-test native suite and C `make check` pass. Production exports remain
+pending; these are SDK-level controls.
+
+The integrated native facade remains open, as do delayed native reservations,
+other non-content batches and configurable queues.
 These gaps still block full t333 parity and production adoption.
