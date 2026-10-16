@@ -55,7 +55,17 @@ fn main() {
     }
     let mut opened = opening.into_opened().unwrap();
     let mode = std::env::var("SOPHIA_TEST_PORTAL_BOUNDARY").unwrap();
-    let request_mode = mode == "sdk-request";
+    let request_mode = mode.starts_with("sdk-request");
+    let refused = matches!(
+        mode.as_str(),
+        "sdk-request-refused" | "sdk-request-busy" | "sdk-request-stale"
+    );
+    let refusal_errno = match mode.as_str() {
+        "sdk-request-busy" => 11,
+        "sdk-request-stale" => 116,
+        _ => 13,
+    };
+    let cancelled = mode.starts_with("sdk-request-cancelled");
     let frame_mode = mode.starts_with("sdk-frame") || request_mode;
     let revoke = mode == "sdk-frame-revoke";
     assert_eq!(
@@ -73,7 +83,7 @@ fn main() {
         let mut request = sophia_portal_client::capture_request::Request::new(
             opened,
             sophia_portal_client::protocol::CaptureRequest {
-                serial: 1,
+                serial: if mode == "sdk-request-busy" { 2 } else { 1 },
                 output: 7,
             },
             0,
@@ -81,7 +91,7 @@ fn main() {
             now + 3000,
         )
         .unwrap();
-        while request.outcome().is_none() {
+        while request.outcome().is_none() && request.error().is_none() {
             assert!(Instant::now() < deadline);
             let interest = request.io_interest().unwrap();
             let fd = request.fd().unwrap();
@@ -103,14 +113,50 @@ fn main() {
                 Some(&rustix::event::Timespec::try_from(wait).unwrap()),
             )
             .unwrap();
-            request
-                .dispatch(start.elapsed().as_millis() as u64, 65536)
-                .unwrap();
+            let result = request.dispatch(start.elapsed().as_millis() as u64, 65536);
+            if !refused {
+                result.unwrap();
+            }
+        }
+        if refused {
+            assert_eq!(
+                request.custody(),
+                sophia_portal_client::capture::Custody::Refused
+            );
+            assert_eq!(
+                request.error(),
+                Some(&sophia_portal_client::capture_request::Error::Capture(
+                    sophia_portal_client::capture::Error::Refused(refusal_errno)
+                ))
+            );
+            assert!(request.outcome().is_none() && request.fd().is_none());
+            std::fs::write(
+                std::env::var_os("SOPHIA_TEST_LOCK_REPORT").unwrap(),
+                b"request-refused\n",
+            )
+            .unwrap();
+            return;
         }
         let (role, outcome, serial) = request.finish().unwrap();
-        assert_eq!(outcome, sophia_portal_client::protocol::CaptureState::Ready);
+        assert_eq!(
+            outcome,
+            if cancelled {
+                sophia_portal_client::protocol::CaptureState::Cancelled
+            } else {
+                sophia_portal_client::protocol::CaptureState::Ready
+            }
+        );
         assert_eq!(serial, 1);
         assert_eq!(role.pipeline.fid_count(), 1);
+        if cancelled {
+            assert!(role.pipeline.is_quiescent());
+            std::fs::write(
+                std::env::var_os("SOPHIA_TEST_LOCK_REPORT").unwrap(),
+                b"request-cancelled\n",
+            )
+            .unwrap();
+            return;
+        }
         opened = role;
     }
     if frame_mode {

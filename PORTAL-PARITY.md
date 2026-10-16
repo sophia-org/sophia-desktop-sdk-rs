@@ -1,6 +1,6 @@
 # Portal SDK parity
 
-Revision 12, 2026-10-16. Recipient components are developing; there is no complete
+Revision 13, 2026-10-16. Recipient components are developing; there is no complete
 portal client or parity claim.
 
 The unchanged recipient contract in `spec/portal-client-files.md` comes from
@@ -192,3 +192,16 @@ gates pass independently in C and Rust. The fixture supplies policy and pixels;
 this is neither native capture acceptance nor measured performance evidence.
 Production request refusal, cancellation/revocation and reconnect audits remain,
 alongside transfer/watch, trusted requester and release work.
+
+Both peers now pass production capture refusal and lock-cancellation gates.
+Locked admission returns EACCES, an occupied queue EAGAIN, and an old serial
+ESTALE; each SDK records Refused with the exact errno and no outcome. Advancing
+the execution fence cancels queued work and work already taken by its owner.
+Both SDKs report Cancelled after a verified status snapshot and retain only the
+root. Unlock does not revive the old work: the fixture rejects its late Ready
+completion and confirms no frame was installed.
+
+All nine external portal gates pass independently in both languages; strict
+Rust Clippy also passes. These checks use the real request queue and export
+with supplied policy. They do not qualify native scheduling, local cancellation
+after wire admission, reconnect recovery, or the remaining transfer/watch APIs.
