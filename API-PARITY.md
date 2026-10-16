@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 19, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 20, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -425,3 +425,14 @@ expiry without sending and capability refusal. Strict Clippy passes. C's
 Rust startup is not negotiation: it issues no candidate and claims no custody.
 Direct nonblocking version negotiation, final handoff-capacity checks, the
 session driver and production-export tests remain required before release.
+
+Rust's provisional journal now assembles all WM event kinds, validates
+capability selection and scans transport controls behind a retained application
+head. Consumption never acknowledges beyond that head. Malformed records stop
+the scan; valid earlier controls remain established. Record/byte bounds, epoch
+and sequence checks, and a fixed fragment deadline match C's
+`wm_session/events.c`. Eleven independent literal-record tests cover retained
+heads, custody ordering, malformed barriers, every fragment split, deadlines,
+64-record retention and capability dependencies. The 21 WM client tests and
+strict Clippy pass. The transport-control callback still needs the submission
+driver's ticket validation; this is not an integrated custody or session gate.
