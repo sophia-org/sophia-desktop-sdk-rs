@@ -1,6 +1,6 @@
 # Output API parity
 
-Revision 7, 2026-10-16. Contract: API-1 output files in `spec/`.
+Revision 8, 2026-10-16. Contract: API-1 output files in `spec/`.
 C reference: `a88efe7`, `src/sophia_output_session.h`.
 Rust has codecs, provisional fixed-file startup and an immutable submission
 lane, ordered journal and topology fetcher joined by a developing session.
@@ -19,7 +19,7 @@ lane, ordered journal and topology fetcher joined by a developing session.
 | Ordered events and ACKs | Provisional journal | Internal controls, retained heads, bounded fragments and advertised fragment deadline. Integrated cumulative ACK scheduling; terminal socket coverage remains. |
 | Authoritative topology | Provisional `Fetch` | Checks published Qid on walk/open, connection and topology epochs, bounded reads, EOF and clunk. Socket test verifies delivery/ACK after EOF and clunk. |
 | Close, revocation and recovery | Startup close and submission disconnect | Submission retains confirmed custody and distinguishes uncertain from unsent work. Session revocation/recovery tests remain. |
-| Production export / protected launch | Missing | Paired independent clients must pass before pin adoption. |
+| Production export / protected launch | Paired supplied-admission exchange passes | Both SDKs negotiate, fetch exact topology, submit ValidateOnly and ACK the outcome against Sophia’s real output worker. Protected launch remains. |
 
 C borrows its descriptor and caller storage; Rust owns the pipeline and lends
 its descriptor for polling only. Both require exclusive control of the admitted
@@ -88,3 +88,23 @@ Terminal state and confirmed/uncertain custody survive explicit close. Rust’s
 37 output-client tests and strict Clippy, and C’s full suite, pass.
 [Output ownership and recovery](OUTPUT-CLIENT.md) documents caller obligations.
 Protected grant revocation and paired production exports remain unqualified.
+
+The independent Rust `output_conformance_peer` and existing C peer now pass
+the same production output export/worker exchange in Sophia. The parent admits
+the exact peer PID; topology and the Validated outcome are supplied by the
+fixture. Both clients settle the final ACK. This is not Engine validation,
+physical output application or protected launch authentication. The normal
+output export suite passes 15 tests; the external Rust case is explicitly
+ignored unless its executable is supplied, and passes when invoked below.
+
+```sh
+SOPHIA_OUTPUT_RUST_SDK_PEER=/absolute/path/to/output_conformance_peer \
+  cargo-slot sophia cargo test -p sophia-runtime --test output_file_export \
+  sdk_session_against_the_output_file_worker -- --include-ignored --nocapture
+```
+
+Build the Rust peer with `cargo-slot sophia-desktop-sdk-rs cargo build
+-p sophia-output-client --example output_conformance_peer`. The test uses
+Sophia’s pinned C SDK; C output implementation remains unchanged in this series.
+Verified production pins are unchanged. Protected launch and release-wide
+qualification remain open.
