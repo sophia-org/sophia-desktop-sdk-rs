@@ -116,6 +116,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sophia-lock-client"
+version = "0.3.0"
+dependencies = [
+ "sophia-lock-protocol",
+]
+
+[[package]]
 name = "sophia-lock-protocol"
 version = "0.3.0"
 dependencies = [

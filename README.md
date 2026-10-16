@@ -18,9 +18,10 @@ Sophia checkout to build.
 | `sophia-output-protocol` | Output file codecs and passive topology values; no output session client yet. |
 | `sophia-output-client` | Developing session with startup, submissions, journal and topology fetching; qualification remains incomplete. |
 | `sophia-lock-protocol` | The lock provider's `sophia_lock_fs_v1` file contract codec (experimental; see Contracts). |
+| `sophia-lock-client` | Experimental candidate preparation; the lock session remains in development. |
 
 The shell role is the only one with a full role client here. The lock provider
-has an experimental codec and no client. WM has a developing Rust client;
+has an experimental codec and a developing client foundation. WM has a developing Rust client;
 output has a developing Rust session alongside its C client. Administration also lacks
 a Rust client. [API parity](API-PARITY.md) records the comparison and gaps.
 

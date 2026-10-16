@@ -4,6 +4,7 @@ members = [
     "crates/sophia-9p-records",
     "crates/sophia-desktop-ids",
     "crates/sophia-lock-protocol",
+    "crates/sophia-lock-client",
     "crates/sophia-launch-client",
     "crates/sophia-namespace-client",
     "crates/sophia-shell-client",
