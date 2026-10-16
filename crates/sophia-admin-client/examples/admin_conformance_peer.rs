@@ -2,7 +2,7 @@
 use sophia_9p_client::pipeline::{IoInterest, PipelineLimits};
 use sophia_admin_client::{
     command::Custody,
-    connecting::Connecting,
+    connecting::{Connecting, Error as ConnectingError},
     protocol::{Command, Outcome, Owner},
     session::Session,
 };
@@ -56,7 +56,11 @@ fn main() {
     let path = &args[1];
     let report = &args[2];
     assert!(
-        args[3] == "settle" || args[3] == "revoke" || args[3] == "loss" || args[3] == "recover"
+        args[3] == "settle"
+            || args[3] == "revoke"
+            || args[3] == "loss"
+            || args[3] == "recover"
+            || args[3] == "denied"
     );
     let expect_loss = args[3] != "settle";
     let clock = Clock(Instant::now());
@@ -73,8 +77,27 @@ fn main() {
             connecting.io_interest().unwrap(),
             connecting.next_wake(),
         );
-        connecting.dispatch(clock.now(), 65536).unwrap();
+        if let Err(error) = connecting.dispatch(clock.now(), 65536) {
+            assert_eq!(args[3], "denied");
+            // HostDomain denial closes the reachable socket before negotiation.
+            assert!(
+                matches!(
+                    error,
+                    ConnectingError::Wire(sophia_9p_client::pipeline::PipelineError::Io(
+                        std::io::ErrorKind::UnexpectedEof
+                            | std::io::ErrorKind::ConnectionReset
+                            | std::io::ErrorKind::BrokenPipe
+                    ))
+                ),
+                "{error:?}"
+            );
+            assert!(!connecting.ready());
+            assert!(connecting.take_session().is_none());
+            assert!(connecting.fd().is_none());
+            return;
+        }
     }
+    assert_ne!(args[3], "denied", "foreign namespace admitted");
     let mut s = connecting.take_session().unwrap();
     assert_eq!(s.catalog_generation(), Some(7));
     let command = Command {

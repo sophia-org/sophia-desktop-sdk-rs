@@ -1,6 +1,6 @@
 # Administrative SDK parity
 
-Revision 14, 2026-10-16. Both SDKs now have developing administrative sessions
+Revision 15, 2026-10-16. Both SDKs now have developing administrative sessions
 and caller-connected socket facades. Qualification remains t333 work.
 
 The pinned file contract is copied unchanged from Sophia
@@ -213,4 +213,13 @@ Command dispatch uses a one-byte budget, including the successful three-command
 sequence, which still fetches only two catalogs (the second after explicit
 refresh). Both tests and strict Rust Clippy pass. No production code changed;
 these checks establish bounded-progress correctness, not a measured speedup.
-Namespace denial and the remaining release-wide audit are still open.
+Namespace denial and the remaining release-wide audit were still open at that checkpoint.
+
+Both peers now pass production HostDomain denial from a foreign user/PID/network
+namespace. Bubblewrap keeps the socket path reachable; the peer requires a
+successful connect followed by transport closure during negotiation, never a
+timeout or a ready session. No command reaches the owner. Missing isolation
+prerequisites fail the opt-in gate rather than silently skipping it. All five
+production administrative gates pass independently for C and Rust; strict Rust
+Clippy passes. This tests administrative HostDomain admission, not Factotum
+authentication for other roles. Release-wide qualification remains open.
