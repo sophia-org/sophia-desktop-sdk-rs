@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 34, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 35, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -521,5 +521,6 @@ custody, retry, deadlines and output-specific domain/refusal rules. C independen
 checks out-of-order domains and EALREADY refusal through both constructors.
 The provisional journal now validates negotiation/refusal and ordered events,
 with seven literal-wire tests. C independently checks all six outcome kinds
-and held-head ACK ordering. Topology fetching and session integration remain
-unimplemented. See output map revision 3 for the evidence limits.
+and held-head ACK ordering. The provisional topology fetcher now checks publication identity through EOF
+and clunk in five matched-reply tests. Session integration remains unimplemented.
+See output map revision 4 for the evidence limits.

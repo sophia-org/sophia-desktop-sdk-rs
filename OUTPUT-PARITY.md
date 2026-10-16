@@ -1,9 +1,9 @@
 # Output API parity
 
-Revision 3, 2026-10-16. Contract: API-1 output files in `spec/`.
+Revision 4, 2026-10-16. Contract: API-1 output files in `spec/`.
 C reference: `a88efe7`, `src/sophia_output_session.h`.
 Rust has codecs, provisional fixed-file startup and an immutable submission
-lane and ordered journal; it is not yet a usable output session client.
+lane, ordered journal and topology fetcher; session integration remains.
 
 | C capability | Rust status | Evidence or remaining work |
 | --- | --- | --- |
@@ -17,7 +17,7 @@ lane and ordered journal; it is not yet a usable output session client.
 | Negotiation and Refused state | Provisional journal | Checks grant subset and revision; Refused supplies an internal ACK target. Driver must settle its ACK before terminal handoff. |
 | Proposal admission and custody | Provisional `Submission` | Configure/epoch checks, immutable bytes, 64-ticket history, same-ID retry, domain allocation and advertised assembly deadline. Nine driver tests; session integration remains. |
 | Ordered events and ACKs | Provisional journal | Internal controls, retained heads, bounded fragments and advertised fragment deadline. Socket ACK scheduling remains. |
-| Authoritative topology | Missing | Fetch the exact ObjectPublished Qid/epoch/topology identity through EOF and clunk before exposing or ACKing it. |
+| Authoritative topology | Provisional `Fetch` | Checks published Qid on walk/open, connection and topology epochs, bounded reads, EOF and clunk. Session/journal integration remains. |
 | Close, revocation and recovery | Startup close and submission disconnect | Submission retains confirmed custody and distinguishes uncertain from unsent work. Session revocation/recovery tests remain. |
 | Production export / protected launch | Missing | Paired independent clients must pass before pin adoption. |
 
@@ -44,8 +44,17 @@ Seven Rust journal tests use literal wire records: grant/refusal checks, all six
 outcomes, held publication barriers, custody validation behind a held head,
 malformed-record stop, fragmented input/deadlines and bounded retention. A
 publication remains hidden until the object driver confirms its sequence, Qid
-and topology epoch. The object driver is still missing; a test callback is not
+and topology epoch. These journal tests use a callback; they are not
 proof of a full object read. C independently checks all six outcomes through
 both constructors, preserving held heads and ACK order. Its existing fragmented
 topology test remains the fetch counterpart. C’s full suite and Rust’s 23
 output-client tests and strict Clippy pass. Session integration remains open.
+
+The provisional topology fetcher has five matched-reply tests: fragmented
+reads, exact identity, EOF/clunk visibility, withheld walk/open retries, fixed
+deadline, length bounds and terminal clunk refusal. A withheld open releases
+its fid before walking again. C’s existing `bootstrap_and_topology` and
+`protocol_faults` socket tests independently cover fragmentation, withheld open
+and wrong-publication Qid, through both startup paths. Rust has 28 passing
+output-client tests and strict Clippy; C’s full suite passes. The fetcher still
+needs the integrated socket driver and production-export qualification.
