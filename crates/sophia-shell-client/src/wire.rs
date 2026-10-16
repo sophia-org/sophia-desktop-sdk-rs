@@ -75,6 +75,7 @@ impl Outbound {
 
 /// One complete session-to-client value decoded from file records.
 pub(crate) enum Inbound {
+    NativePublication(sophia_shell_protocol::shell_files::ShellFileObjectPublished),
     Native(sophia_shell_protocol::shell_files::ShellFileNativeLauncherRecord),
     Descriptor(sophia_shell_protocol::shell_files::ShellFileDescriptorRecord),
     ApplicationCatalog(

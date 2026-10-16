@@ -280,6 +280,9 @@ impl FileWire {
                 self.submitted_sequence = sequence;
             }
             Event::Published(published, index) => {
+                if self.native_launcher {
+                    inbox.push_back(Inbound::NativePublication(published));
+                }
                 let bound = sequence - 1;
                 let hold = self.holds[index].get_or_insert(bound);
                 *hold = (*hold).min(bound);

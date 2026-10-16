@@ -17,6 +17,10 @@ pub use descriptor::DescriptorObservation;
 mod lifecycle;
 mod native_launcher;
 pub use native_launcher::NativeLauncherObservation;
+mod native_lifecycle;
+pub use native_lifecycle::{
+    NativeInputReservation, NativeInputStatus, NativeLauncherLifecycle, NativeLifecycleState,
+};
 mod outbox;
 pub use outbox::QueueReservation;
 mod reservation;

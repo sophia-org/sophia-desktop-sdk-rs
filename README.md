@@ -68,8 +68,19 @@ activations; `enqueue_native_candidate_tracked` sends a whole candidate.
 before a local edit; commit admits both or neither, with separate custody tickets.
 Drain `take_native_launcher_observation` for native events, content outcomes and
 catalogs in order. Do not mix other receive methods into that ordered stream.
-This is transport support: the caller still owns focus eligibility, input ACK
-deadlines and lifecycle state. C's full native lifecycle helper is not yet matched.
+`NativeLauncherLifecycle` adds opening, presentation, focus and keyboard-input
+tracking. Feed observations in order, use `enqueue_native_candidate_with_lifecycle`
+to admit and track a candidate together, and `prepare_native_input` before any
+edit. The returned handle holds the exact response; commit consumes the retained
+input, while Drop leaves it available. Its status reports edit/activation
+eligibility and the input ACK scheduling deadline. Call `service` after driving
+the connection to reconcile custody and disconnects. Publication notices disarm
+stale scenes before snapshot fetching completes.
+
+The caller still owns allocation/resource/permit lifetimes, pointer-action
+responses and scheduling before the reported deadline. This is not yet C's full
+native lifecycle helper. Never use local admission as proof of presentation or
+application startup.
 
 The protocol crate also carries the descriptor, tabs, shortcut/reference and
 revision-4 launcher records, native file codecs and pure validation. This

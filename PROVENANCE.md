@@ -1,5 +1,25 @@
 # Provenance
 
+## t333 native presentation and keyboard lifecycle
+
+`NativeLauncherLifecycle` tracks ordered openings, candidate outcomes, exact
+focus bindings, input revisions and activation outcomes. The tracked candidate
+API registers metadata only after successful admission. A retained input cannot
+be skipped; its prepared response reserves capacity before an edit and commits
+without allocation or I/O. Cancellation keeps the input, refused ACKs are counted
+once rather than replayed, and disconnect/correlation failure disarms authority.
+
+`NativeLauncherObservation::Published` now exposes catalog/output announcements
+before their objects finish fetching, allowing immediate stale-scene checks.
+Downstream exhaustive matches must handle this new variant. Nine new lifecycle
+controls cover Prepared versus Presented, exact/replaced/revoked focus, retained
+inputs and cancellation, saturation, deadlines, ACK refusal, activation admission,
+close/reopen, late Presented and disconnect. The full workspace suite, final
+native suite and strict Clippy pass; C's full suite passes at `62b62f6`, including
+its independent `test_focus`, `test_input`, `test_activation` and `test_close`.
+These are SDK checks, not production-export qualification. Resource and permit
+ownership, pointer-response batching and the full lifecycle facade remain open.
+
 ## t333 native launcher transport
 
 The shell client now carries revision-7 native launcher records under the

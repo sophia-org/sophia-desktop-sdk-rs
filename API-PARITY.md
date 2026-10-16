@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 7, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 8, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -147,8 +147,42 @@ separate custody after disconnect. C `f8ca212` passes its full suite, including
 `test_activation`. C helper tests use a session stand-in; these paired checks
 are not production-export or physical qualification.
 
-Next map opening/focus/revocation, input revision and ACK obligations,
-allocation/upload/retirement, presentation and activation outcomes into a Rust
-lifecycle helper. `ContentLifecycle` is not C's `sophia_ns` counterpart. Pointer
-activation/ACK batching and delayed native reservation APIs also remain gaps.
-Do not claim full native lifecycle or desktop API parity from this transport.
+
+## Native presentation and keyboard lifecycle
+
+Rust now supplies `NativeLauncherLifecycle` for the presentation/input portion
+of C's `sophia_ns`. `observe` applies ordered decoded observations; `input`
+retains an input until its response commits. Opening IDs must rise, Prepared
+never enables targets, focus must match the shown candidate and current revision,
+and a later exact focus supersedes the previous lease without a fabricated
+lease-order rule. Activation admission disarms the opening; close and disconnect
+remove input authority. A late Presented for a closed opening cannot restore it.
+
+`enqueue_native_candidate_with_lifecycle` admits the exact candidate and its
+metadata together; failed admission registers nothing. `prepare_native_input`
+checks eligibility and reserves the response before an edit. Drop cancels and
+retains the input; commit records its tickets and consumes it without allocation
+or I/O. `service` reconciles custody, counts refused ACKs once and disarms a final
+connection. No automatic retry of application effects or reconnect occurs.
+
+The input deadline is issuance microseconds divided by 1000 plus the timeout,
+saturating at the clock representation limit, matching C. It is an early host
+CLOCK_MONOTONIC scheduling deadline, not proof of timely server service.
+`NativeLauncherObservation::Published` exposes catalog/output announcements
+before fetching completes; old local scenes are disarmed at announcement, not
+merely when the replacement object is installed. Exhaustive matches must add
+this variant. Consume one ordered stream; feed a snapshot after accepting it
+for scene construction. The reducer does not render or install UI state.
+
+Nine Rust lifecycle controls and the existing transport checks pass, as do
+workspace tests, strict Clippy and C's full suite at `62b62f6`. C counterparts
+are `native_session_test`'s focus, input, activation, catalog-invalidation,
+close and terminal controls. That C helper suite uses a session stand-in;
+production-export acceptance is still pending.
+
+This is not the complete C helper: resource/allocation ownership, pacing and
+advisory permit bounds, pointer action/ACK handling and the integrated facade
+remain to implement. The caller currently supplies valid resources/permits and
+handles pointer actions. Delayed native reservations, other non-content batches
+and configurable queue parity also remain open. These gaps block full t333
+parity and production adoption; the underlying protocol contract is available.

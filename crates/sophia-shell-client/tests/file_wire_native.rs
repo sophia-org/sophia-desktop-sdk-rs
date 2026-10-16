@@ -11,6 +11,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 const CAPS: u64 = (1 << 5) | (1 << 7) | (1 << 8) | (1 << 11);
+#[path = "support/native_lifecycle.rs"]
+mod lifecycle;
 
 #[test]
 fn allocation_and_whole_native_candidate_reach_submitted() {
@@ -495,13 +497,16 @@ fn native_catalog_is_fetched_before_later_events() {
         while let Some(v) = c.take_native_launcher_observation().unwrap() {
             seen.push(v);
         }
-        seen.len() == 2
+        seen.len() == 3
     })
     .unwrap();
     assert!(
-        matches!(&seen[0], NativeLauncherObservation::Catalog(t, v) if *t == tx(20) && *v == catalog)
+        matches!(&seen[0], NativeLauncherObservation::Published(v) if v.object == ShellFileKind::Catalog && v.generation == 6)
     );
     assert!(
-        matches!(&seen[1], NativeLauncherObservation::Record(v) if v.record == ShellNativeLauncherRecord::Focus(binding()))
+        matches!(&seen[1], NativeLauncherObservation::Catalog(t, v) if *t == tx(20) && *v == catalog)
+    );
+    assert!(
+        matches!(&seen[2], NativeLauncherObservation::Record(v) if v.record == ShellNativeLauncherRecord::Focus(binding()))
     );
 }

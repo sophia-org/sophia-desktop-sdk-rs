@@ -12,6 +12,9 @@ use sophia_shell_protocol::{
 /// from the same inbox. Snapshot feeds may coalesce superseded generations.
 #[derive(Debug)]
 pub enum NativeLauncherObservation {
+    /// Disarm scenes based on older facts/catalogs immediately, even while
+    /// fetching the announced snapshot. The complete object follows later.
+    Published(sophia_shell_protocol::shell_files::ShellFileObjectPublished),
     Record(ShellFileNativeLauncherRecord),
     Content(TransactionId, ShellContentRecord),
     Catalog(TransactionId, ShellApplicationCatalog),
@@ -85,7 +88,10 @@ impl ShellConnection {
         let at = self.inbox.iter().position(|v| {
             matches!(
                 v,
-                Inbound::Native(_) | Inbound::Content(..) | Inbound::ApplicationCatalog(..)
+                Inbound::NativePublication(_)
+                    | Inbound::Native(_)
+                    | Inbound::Content(..)
+                    | Inbound::ApplicationCatalog(..)
             )
         });
         let Some(item) = at.and_then(|at| self.inbox.remove(at)) else {
@@ -96,6 +102,7 @@ impl ShellConnection {
             };
         };
         Ok(Some(match item {
+            Inbound::NativePublication(value) => NativeLauncherObservation::Published(value),
             Inbound::Native(value) => NativeLauncherObservation::Record(value),
             Inbound::Content(tx, value) => NativeLauncherObservation::Content(tx, value),
             Inbound::ApplicationCatalog(tx, value) => NativeLauncherObservation::Catalog(tx, value),

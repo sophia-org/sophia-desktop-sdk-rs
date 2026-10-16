@@ -90,7 +90,8 @@ impl ShellConnection {
                 assembly.generation = catalog.catalog.generation;
                 Ok(Some(CatalogObservation::Catalog(tx, catalog)))
             }
-            Inbound::Native(_)
+            Inbound::NativePublication(_)
+            | Inbound::Native(_)
             | Inbound::Indicators(_, _)
             | Inbound::IndicatorOutcome(_, _)
             | Inbound::Descriptor(_)
