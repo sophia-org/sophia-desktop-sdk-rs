@@ -1,6 +1,8 @@
 //! Passive recipient records. Decoding establishes neither a grant nor presentation.
 mod capture;
 pub use capture::*;
+mod discovery;
+pub use discovery::*;
 pub const FRAME_INFO_BYTES: usize = 64;
 pub const IMAGE_MAX_BYTES: u64 = 64 * 1024 * 1024;
 
