@@ -54,7 +54,9 @@ fn main() {
             .unwrap();
     }
     let opened = opening.into_opened().unwrap();
-    let frame_mode = std::env::var("SOPHIA_TEST_PORTAL_BOUNDARY").unwrap() == "sdk-frame";
+    let mode = std::env::var("SOPHIA_TEST_PORTAL_BOUNDARY").unwrap();
+    let frame_mode = mode.starts_with("sdk-frame");
+    let revoke = mode == "sdk-frame-revoke";
     assert_eq!(
         opened.info.request,
         if frame_mode {
@@ -74,7 +76,8 @@ fn main() {
             now + 3000,
         )
         .unwrap();
-        while frame.result().is_none() {
+        let mut paused = false;
+        while frame.result().is_none() && frame.error().is_none() {
             assert!(Instant::now() < deadline);
             let interest = frame.io_interest().unwrap();
             let fd = frame.fd().unwrap();
@@ -96,9 +99,36 @@ fn main() {
                 Some(&rustix::event::Timespec::try_from(wait).unwrap()),
             )
             .unwrap();
-            frame
-                .dispatch(start.elapsed().as_millis() as u64, 65536)
-                .unwrap();
+            let result = frame.dispatch(
+                start.elapsed().as_millis() as u64,
+                if revoke && !paused { 1 } else { 65536 },
+            );
+            if !revoke {
+                result.unwrap();
+            }
+            if revoke && !paused && frame.received() > 0 {
+                assert!(frame.received() < 256 * 128 * 4 && frame.result().is_none());
+                let report = std::env::var_os("SOPHIA_TEST_LOCK_REPORT").unwrap();
+                std::fs::write(&report, b"partial\n").unwrap();
+                while std::fs::read_to_string(&report).unwrap() != "continue\n" {
+                    assert!(Instant::now() < deadline);
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                paused = true;
+            }
+        }
+        if revoke {
+            assert!(paused && frame.result().is_none() && frame.fd().is_none());
+            assert!(!matches!(
+                frame.error(),
+                Some(sophia_portal_client::frame::Error::Deadline)
+            ));
+            std::fs::write(
+                std::env::var_os("SOPHIA_TEST_LOCK_REPORT").unwrap(),
+                b"revoked\n",
+            )
+            .unwrap();
+            return;
         }
         let (opened, info, pixels) = frame.finish().unwrap();
         assert_eq!(

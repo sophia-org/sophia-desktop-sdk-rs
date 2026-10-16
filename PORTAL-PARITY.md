@@ -1,6 +1,6 @@
 # Portal SDK parity
 
-Revision 9, 2026-10-16. Recipient components are developing; there is no complete
+Revision 10, 2026-10-16. Recipient components are developing; there is no complete
 portal client or parity claim.
 
 The unchanged recipient contract in `spec/portal-client-files.md` comes from
@@ -130,3 +130,12 @@ only the role root afterwards. Both external startup/delivery gates and strict
 Rust Clippy pass. This qualifies the SDK/export boundary with supplied policy
 and pixels, not SDK request custody, mid-read revocation, native presentation,
 physical installation or performance.
+
+Both peers also pass the production mid-read revocation gate. Each pauses after
+accepting some pixels; the fixture advances the lock fence before reading
+continues. Both terminate without a completed image, and deadline expiry cannot
+pass the test. The new received-byte accessor reports scratch progress only.
+Bytes already buffered before revocation may still arrive; this gate does not
+claim they can be recalled. All three external portal gates, the existing
+portal-dispatch regressions and strict Rust Clippy pass. Capture-request custody
+and the remaining recipient operations still need implementation.

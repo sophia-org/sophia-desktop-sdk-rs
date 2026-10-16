@@ -58,12 +58,7 @@ pub struct Frame {
 impl Frame {
     /// Exclusive, quiescent role ownership. Reuses caller storage; at most one
     /// image allocation after metadata validation. The caller retains the relay.
-    pub fn new(
-        opened: Opened,
-        storage: Vec<u8>,
-        now: u64,
-        deadline: u64,
-    ) -> Result<Self, Error> {
+    pub fn new(opened: Opened, storage: Vec<u8>, now: u64, deadline: u64) -> Result<Self, Error> {
         let w = &opened.pipeline;
         if now < opened.now {
             return Err(Error::ClockRegression);
@@ -118,6 +113,10 @@ impl Frame {
     }
     pub fn error(&self) -> Option<&Error> {
         self.error.as_ref()
+    }
+    /// Accepted payload bytes, including incomplete scratch. Not image validity.
+    pub fn received(&self) -> u64 {
+        self.window.as_ref().map_or(0, ReadWindow::received)
     }
     pub fn result(&self) -> Option<(FrameInfo, &[u8])> {
         if self.error.is_none() && self.stage == Stage::Ready {
