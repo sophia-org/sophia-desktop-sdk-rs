@@ -9,6 +9,7 @@ members = [
     "crates/sophia-shell-client",
     "crates/sophia-wm-protocol",
     "crates/sophia-wm-client",
+    "crates/sophia-output-protocol",
     "crates/sophia-shell-protocol",
 ]
 resolver = "3"
@@ -29,6 +30,7 @@ sophia-9p-records = { path = "crates/sophia-9p-records", version = "0.3.0" }
 sophia-desktop-ids = { path = "crates/sophia-desktop-ids", version = "0.3.0" }
 sophia-shell-protocol = { path = "crates/sophia-shell-protocol", version = "0.3.0" }
 sophia-wm-protocol = { path = "crates/sophia-wm-protocol", version = "0.3.0" }
+sophia-output-protocol = { path = "crates/sophia-output-protocol", version = "0.3.0" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 30, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 31, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -491,4 +491,23 @@ ownership differences and remaining qualification. Rust adds the passive
 obligations view and fixes Connecting's missing negotiation retry wake.
 The socket regression advances to the advertised EAGAIN wake, not the much
 later bootstrap deadline; terminal flags and snapshot readiness are checked.
-Early-startup introspection and broader terminal/export coverage remain open.
+Subsequent changes add startup introspection, paired fault checks, supplied
+production exchange and protected admission/revocation; WM-PARITY.md records
+their exact scope. Release and pin adoption remain open.
+
+## Output protocol foundation
+
+Rust now provides `sophia-output-protocol`: API-1 envelope, controls, Limits,
+topology and proposal codecs with passive output values. It is extracted from
+signed Sophia `ad2fa4962ba1e7626b601e1a5b6b0ab95324bfc3`; the extraction
+manifest records 21 original source hashes and the adaptations. Its schema
+and normative file contract match the C SDK byte for byte. All 30 extracted
+tests, the Rust workspace suite and targeted strict Clippy pass.
+
+This matches the C `sophia_output_files.h` codec surface, not the session
+in `sophia_output_session.h`. Rust still needs startup, observe-required
+negotiation/refusal, proposal custody/retry, automatically fetched topology
+with exact publication/Qid identity, ordered events/ACK barriers, external-loop
+service and terminal/recovery behavior. Output qualification remains open.
+Candidate syntax must preserve semantically invalid values for the server's
+topology owner to refuse; client parsing cannot assume authority.

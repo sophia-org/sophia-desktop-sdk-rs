@@ -15,11 +15,12 @@ Sophia checkout to build.
 | `sophia-shell-client` | The shell client over the file contract. |
 | `sophia-wm-protocol` | The WM file codecs and passive policy records. |
 | `sophia-wm-client` | Developing WM session with negotiation, events, custody and Cycle-bound snapshots. |
+| `sophia-output-protocol` | Output file codecs and passive topology values; no output session client yet. |
 | `sophia-lock-protocol` | The lock provider's `sophia_lock_fs_v1` file contract codec (experimental; see Contracts). |
 
 The shell role is the only one with a full role client here. The lock provider
 has an experimental codec and no client. WM has a developing Rust client;
-output has a contract and C client but no Rust client. Administration also lacks
+output has native Rust codecs and a C client but no Rust session client. Administration also lacks
 a Rust client. [API parity](API-PARITY.md) records the comparison and gaps.
 
 The WM protocol crate includes negotiation, profile handoff, snapshots,

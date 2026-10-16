@@ -130,6 +130,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "sophia-output-protocol"
+version = "0.3.0"
+dependencies = [
+ "kdl",
+ "sophia-desktop-ids",
+]
+
+[[package]]
 name = "sophia-shell-client"
 version = "0.3.0"
 dependencies = [
