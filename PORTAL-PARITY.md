@@ -1,6 +1,6 @@
 # Portal SDK parity
 
-Revision 13, 2026-10-16. Recipient components are developing; there is no complete
+Revision 14, 2026-10-16. Recipient components are developing; there is no complete
 portal client or parity claim.
 
 The unchanged recipient contract in `spec/portal-client-files.md` comes from
@@ -205,3 +205,20 @@ All nine external portal gates pass independently in both languages; strict
 Rust Clippy also passes. These checks use the real request queue and export
 with supplied policy. They do not qualify native scheduling, local cancellation
 after wire admission, reconnect recovery, or the remaining transfer/watch APIs.
+
+The snapshot operation driver now supports opaque retained transfers, capped at
+65,536 bytes. Rust `Fetch::transfer` borrows a mutable caller slice; C uses
+`SOPHIA_PS_TRANSFER` with its existing borrowed storage. Both require at least
+64 KiB, leave unused bytes untouched and allocate no payload buffer. Rust's
+Fetch now carries a storage lifetime; metadata constructors still store their
+small records inline. Transport reply allocation is unchanged.
+
+The driver reads bounded chunks on one retained fid, probes EOF at the limit
+and exposes bytes only after successful clunk. It does not decode payloads or
+infer a relationship to a separately walked watch fid. Independent tests pass
+empty, one-byte and exact-limit payloads, fragmented replies, undersized storage,
+overflow, stale reads and clunk refusal. All seventeen Rust client tests,
+C transfer/snapshot/request tests and strict Clippy pass. Rebuilt peers pass
+the nine existing production gates as regression checks; these do not exercise
+the new transfer path. Transfer transport composition and production delivery,
+watch and the remaining recovery audits still need implementation.

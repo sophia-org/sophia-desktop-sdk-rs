@@ -2,6 +2,8 @@
 //! The connection driver matches tags and closes the transport on terminal error.
 use sophia_9p_client::pipeline::Reply;
 use sophia_9p_records::{Fid, QidKind};
+use std::ops::{Deref, DerefMut};
+pub const TRANSFER_MAX_BYTES: usize = 65_536;
 use sophia_portal_protocol::{
     API_MAX_BYTES, CAPTURE_STATUS_BYTES, STATUS_MAX_BYTES, decode_api, decode_capture_status,
     decode_status,
@@ -12,6 +14,7 @@ pub enum File {
     Api,
     CaptureStatus,
     Status,
+    Transfer,
 }
 impl File {
     pub const fn name(self) -> &'static [u8] {
@@ -19,6 +22,7 @@ impl File {
             Self::Api => b"api",
             Self::CaptureStatus => b"capture-status",
             Self::Status => b"status",
+            Self::Transfer => b"transfer",
         }
     }
     pub const fn maximum(self) -> usize {
@@ -26,6 +30,7 @@ impl File {
             Self::CaptureStatus => CAPTURE_STATUS_BYTES,
             Self::Api => API_MAX_BYTES,
             Self::Status => STATUS_MAX_BYTES,
+            Self::Transfer => TRANSFER_MAX_BYTES,
         }
     }
 }
@@ -54,22 +59,62 @@ pub enum Operation {
     Clunk(Fid),
 }
 
-pub struct Fetch {
+enum Storage<'a> {
+    Inline([u8; API_MAX_BYTES]),
+    Borrowed(&'a mut [u8]),
+}
+impl Deref for Storage<'_> {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        match self {
+            Self::Inline(b) => b,
+            Self::Borrowed(b) => b,
+        }
+    }
+}
+impl DerefMut for Storage<'_> {
+    fn deref_mut(&mut self) -> &mut [u8] {
+        match self {
+            Self::Inline(b) => b,
+            Self::Borrowed(b) => b,
+        }
+    }
+}
+pub struct Fetch<'a> {
     file: File,
     stage: Stage,
     fid: Fid,
     outstanding: bool,
     sent: usize,
     iounit: u32,
-    bytes: [u8; API_MAX_BYTES],
+    bytes: Storage<'a>,
     used: usize,
     now: u64,
     deadline: u64,
     error: Option<Error>,
 }
-impl Fetch {
-    /// Inline bounded metadata storage; no allocation or I/O.
+impl<'a> Fetch<'a> {
+    /// Inline bounded metadata storage; no allocation or I/O. Transfer requires
+    /// the caller-storage constructor and is refused here.
     pub fn new(file: File, now: u64, deadline: u64) -> Result<Self, Error> {
+        Self::with_storage(file, Storage::Inline([0; API_MAX_BYTES]), now, deadline)
+    }
+    /// Opaque retained transfer, using at least 64 KiB of caller storage. Does
+    /// not clear or allocate that storage. Partial bytes remain scratch until
+    /// EOF and clunk succeed. The driver matches replies and retains the fid;
+    /// no relationship to a separately walked watch fid is inferred.
+    pub fn transfer(storage: &'a mut [u8], now: u64, deadline: u64) -> Result<Self, Error> {
+        Self::with_storage(File::Transfer, Storage::Borrowed(storage), now, deadline)
+    }
+    fn with_storage(
+        file: File,
+        bytes: Storage<'a>,
+        now: u64,
+        deadline: u64,
+    ) -> Result<Self, Error> {
+        if bytes.len() < file.maximum() {
+            return Err(Error::Invalid);
+        }
         if deadline <= now {
             return Err(Error::Deadline);
         }
@@ -80,7 +125,7 @@ impl Fetch {
             outstanding: false,
             sent: 0,
             iounit: 0,
-            bytes: [0; API_MAX_BYTES],
+            bytes,
             used: 0,
             now,
             deadline,
@@ -200,6 +245,7 @@ impl Fetch {
                             decode_capture_status(&self.bytes[..self.used]).map(|_| ())
                         }
                         File::Status => decode_status(&self.bytes[..self.used]).map(|_| ()),
+                        File::Transfer => Ok(()),
                     }
                     .map_err(|_| Error::Invalid)?;
                     self.stage = Stage::Clunk;

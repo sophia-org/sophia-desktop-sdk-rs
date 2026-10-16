@@ -49,7 +49,7 @@ enum Stage {
 pub struct Request {
     opened: Option<Opened>,
     capture: Pending,
-    fetch: Option<Fetch>,
+    fetch: Option<Fetch<'static>>,
     stage: Stage,
     pending: Option<Tag>,
     fid: Fid,

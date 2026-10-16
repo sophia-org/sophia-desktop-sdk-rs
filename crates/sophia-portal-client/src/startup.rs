@@ -40,7 +40,7 @@ pub struct Opening {
     stage: Stage,
     pending: Option<Tag>,
     root: Fid,
-    fetch: Fetch,
+    fetch: Fetch<'static>,
     info: Option<Api>,
     now: u64,
     deadline: u64,
