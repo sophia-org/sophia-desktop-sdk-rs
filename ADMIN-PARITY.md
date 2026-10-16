@@ -1,7 +1,7 @@
 # Administrative SDK parity
 
-Revision 7, 2026-10-16. Neither SDK yet provides the complete administrative
-client. This is required t333 work, not an unsupported-role waiver.
+Revision 8, 2026-10-16. Both SDKs now have developing administrative sessions
+on startup handoffs. Raw-socket facades and qualification remain t333 work.
 
 The pinned file contract is copied unchanged from Sophia
 `baedfd0c9`, `docs/sophia-admin-files.md`; SHA-256 is
@@ -126,3 +126,27 @@ explicit/short write replies, frame/overall expiry, clock regression and pending
 cadence. Strict Clippy passes. These component tests do not establish the full
 command session: pipeline integration, retained catalog ownership, request
 sequencing, external-loop facade and paired production gates remain.
+
+The integrated sessions now retain one catalog, admit one command at a time,
+assign increasing request IDs and drive matched snapshot/write replies on the
+same pipeline. Rust retains one snapshot Vec plus fixed name offsets; C retains
+names in its caller-owned catalog buffer. Neither clones a catalog per command.
+Rust reuses status storage; C uses fixed storage. C session state must not move
+after initialization because its borrowed views point inside it.
+
+Both expose catalog refresh, command admission, latest custody, outcome,
+write readiness, next wake and explicit close. Catalog refresh is explicit after
+an invalidating result. Idle sessions schedule no status reads. Request-ID
+exhaustion refuses admission. Terminal errors preserve custody and prevent
+further mutation; no reconnect or replay occurs. Rust drops its owned pipeline;
+C requires its caller to close the borrowed fd. C errors identify the failing
+component and preserve that component's error value.
+
+Ten Rust client tests plus nine protocol tests pass, with strict Clippy. C's
+independent integrated socket test passes. Each peer exercises three sequential
+commands on one attach, a pending snapshot before each outcome, reuse of the
+first catalog, refresh after a Session result, unadvertised/busy refusal,
+explicit write refusal, loss after write and mismatched outcome generation.
+Both retain confirmed outcomes on close. These are scripted peers, not production
+export evidence. Raw-socket/version facades, further integrated failure cases,
+ownership/recovery guidance and paired production qualification remain.

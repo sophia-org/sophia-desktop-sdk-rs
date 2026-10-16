@@ -6,8 +6,8 @@ Sophia checkout to build.
 
 | Crate | What it is |
 | --- | --- |
-| `sophia-admin-protocol` | Passive administrative info, catalog, invocation and status codecs. The administrative client remains missing. |
-| `sophia-admin-client` | Developing nonblocking administrative client components; bounded snapshot fetching, no complete connection facade yet. |
+| `sophia-admin-protocol` | Passive administrative info, catalog, invocation and status codecs. |
+| `sophia-admin-client` | Developing administrative session with retained catalogs, command custody and caller-driven status snapshots; production qualification remains open. |
 | `sophia-9p-records` | 9P2000.L value records (tags, fids, qids, wire errno, requests, replies), shared with Sophia's server core. |
 | `sophia-9p-client` | Bounded 9P2000.L clients: a blocking read-only `client` and the nonblocking, pipelined `pipeline` the role clients drive. |
 | `sophia-launch-client` | Sophia's local launch-channel authentication: correlated afid exchange, bounded progress and an admitted role root. |
@@ -24,7 +24,7 @@ Sophia checkout to build.
 
 Shell, WM and output have native clients; their release qualification differs.
 The lock provider now has an experimental session against its draft contract.
-Administration still lacks a Rust client. [API parity](API-PARITY.md) records
+Administration has a developing session on a versioned pipeline. [API parity](API-PARITY.md) records
 the comparison, evidence and remaining gaps.
 
 The WM protocol crate includes negotiation, profile handoff, snapshots,

@@ -582,3 +582,7 @@ handoff through info/ctl. Command sessions and production qualification remain.
 Admin map 7 adds paired immutable invocation custody and caller-driven status
 scheduling, retaining uncertain and confirmed outcomes distinctly. Full session
 integration and production gates remain.
+
+Admin map 8 adds integrated same-connection sessions, retained catalogs,
+monotonic command IDs, pending-only status snapshots and terminal custody.
+Paired scripted socket exchanges pass; production qualification remains.

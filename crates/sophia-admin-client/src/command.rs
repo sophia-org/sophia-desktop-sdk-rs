@@ -53,9 +53,21 @@ impl Pending {
         request: u64,
         now: u64,
     ) -> Result<Self, Error> {
+        if !catalog.contains(command) {
+            return Err(Error::Invalid);
+        }
+        Self::selected(info, catalog.generation(), command, request, now)
+    }
+    pub(crate) fn selected(
+        info: Info,
+        generation: u64,
+        command: Command<'_>,
+        request: u64,
+        now: u64,
+    ) -> Result<Self, Error> {
         if info.connection == 0
             || request == 0
-            || !catalog.contains(command)
+            || generation == 0
             || info.command_ms == 0
             || info.command_ms > 10000
             || info.frame_ms == 0
@@ -71,7 +83,7 @@ impl Pending {
             Invocation {
                 connection: info.connection,
                 request,
-                generation: catalog.generation(),
+                generation,
                 owner: command.owner,
                 name: command.name,
             },
@@ -83,7 +95,7 @@ impl Pending {
             length,
             connection: info.connection,
             request,
-            generation: catalog.generation(),
+            generation,
             owner: command.owner,
             reload: command.name == "reload-profile",
             frame: u64::from(info.frame_ms),
