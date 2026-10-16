@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 9, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 10, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -187,7 +187,7 @@ Rust now tracks allocation and resource ownership and frame demands/permits:
 | Operation | Native C | Native Rust |
 | --- | --- | --- |
 | Acquire/resize/release | `sophia_ns_allocate`, `sophia_ns_release` | `allocate_native`, `release_native_allocation` |
-| Upload | `sophia_ns_upload_begin/end/cancel`, `sophia_ss_upload_chunk` | `begin_native_resource`, `upload_native_chunk`, `end_native_resource`, `cancel_native_resource` |
+| Upload | `sophia_ns_upload_begin/end/cancel`, `sophia_ns_resource_cancel`, `sophia_ss_upload_chunk` | `begin_native_resource`, `upload_native_chunk`, `end_native_resource`, `cancel_native_resource` |
 | Retire/release | `sophia_ns_retire`, resource events | `retire_native_resource`, `observe` |
 | Demand/cancel | `sophia_ns_demand`, `sophia_ns_demand_cancel` | `demand_native_frame`, `cancel_native_demand` |
 | Construct a scene | `sophia_ns_present` | `present_native_scene` |
@@ -197,10 +197,11 @@ Both retain at most 16 resource identities and one upload. Rust copies each
 caller chunk and returns a Stored custody ticket; C borrows its buffer until
 upload progress finishes. Caller writes may split the declared layout chunks.
 Rust validates layout against Limits and requires Stored before another write
-or End. Failed payload is not replayed; cancel the resource. Rust's explicit-ID
-cancel also permits cleanup after a refused End; C callers can submit the same
-ResourceCancel through `sophia_ss_submit`, but its convenience wrapper still
-names the current upload. That convenience difference remains to reconcile.
+or End. Failed payload is not replayed; cancel the resource. Both SDKs offer explicit-resource cancellation after a refused End. C's
+`sophia_ns_resource_cancel` also delegates current-upload cancellation to the
+existing transport wrapper. Neither helper releases the resource identity until
+its terminal event. Independent tests cover refused End, cancellation and
+identity retention; C also checks queue saturation and stale generations.
 
 A rejected resize preserves the grant. Close removes local allocation use but
 waits for server invalidation before replacing an orphaned grant. Resources

@@ -1,5 +1,13 @@
 # Provenance
 
+## t333 explicit resource cancellation parity
+
+C now exposes `sophia_ns_resource_cancel`, matching Rust's explicit-resource
+cleanup after a refused End. A new Rust regression verifies cancellation keeps
+the identity until terminal status and then allows another Begin. All 26 native
+tests and C's full `make check` pass. C separately checks saturated admission and
+stale generations. This is SDK evidence, not production-export qualification.
+
 ## t333 native resources and pacing
 
 The Rust lifecycle now owns allocation requests, orphaned grants, bounded

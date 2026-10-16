@@ -481,3 +481,35 @@ fn refused_payload_cannot_end_or_replay_and_can_be_cancelled() {
     status(&mut c, &mut p, &mut l, 4);
     assert_eq!(l.resource_state(resource()), None);
 }
+
+#[test]
+fn refused_end_can_be_cancelled_by_resource_identity() {
+    let (mut c, mut p, mut l) = setup();
+    let a = c.begin_native_resource(&mut l, tx(80), begin()).unwrap();
+    commit(&mut c, &mut p, a.first);
+    status(&mut c, &mut p, &mut l, 1);
+    let a = c.upload_native_chunk(&mut l, &[1, 2, 3, 4]).unwrap();
+    drive(&mut c, &mut p, |c, _| {
+        c.custody(a.first) == Some(Custody::Stored)
+    })
+    .unwrap();
+    let a = c.end_native_resource(&mut l, tx(81)).unwrap();
+    refuse(&mut c, &mut p, a.first);
+    l.service(&c).unwrap();
+    let a = c
+        .cancel_native_resource(&mut l, tx(82), resource())
+        .unwrap();
+    assert_eq!(
+        l.resource_state(resource()),
+        Some(NativeResourceState::Admitted)
+    );
+    assert!(c.begin_native_resource(&mut l, tx(83), begin()).is_err());
+    commit(&mut c, &mut p, a.first);
+    status(&mut c, &mut p, &mut l, 4);
+    assert_eq!(l.resource_state(resource()), None);
+    assert!(
+        c.cancel_native_resource(&mut l, tx(83), resource())
+            .is_err()
+    );
+    c.begin_native_resource(&mut l, tx(84), begin()).unwrap();
+}
