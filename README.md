@@ -55,6 +55,11 @@ For several content operations, build `ContentBatchItem::Record` and
 ticket per item. The server still accepts or refuses each operation separately;
 one accepted batch is not an atomic server transaction.
 
+Use `custody_result(ticket)` to distinguish retained custody from
+`CustodyLookupError::Unavailable` (evicted history) and `Unissued`. The existing
+`custody` method still returns `None` for both lookup failures. Tickets must
+be queried on their issuing connection.
+
 The protocol crate also carries the descriptor, tabs, shortcut/reference and
 revision-4 launcher records, native file codecs and pure validation. This
 descriptor client role follows `spec/sophia-shell-files-v1.kdl` and

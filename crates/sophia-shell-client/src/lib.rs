@@ -8,7 +8,7 @@ mod batch;
 mod candidate;
 pub use batch::ContentBatchItem;
 mod custody;
-pub use custody::{Admission, Custody, Ticket};
+pub use custody::{Admission, Custody, CustodyLookupError, Ticket};
 mod catalog;
 pub use catalog::{CatalogInbox, CatalogObservation};
 mod descriptor;
@@ -318,6 +318,14 @@ impl ShellConnection {
     /// `Submitted` event is observed; admission alone is local queueing.
     pub fn custody(&self, ticket: Ticket) -> Option<Custody> {
         self.ledger.get(ticket)
+    }
+
+    /// Query custody while distinguishing evicted tickets from unissued ones.
+    /// Use tickets only with the connection that issued them. This does no I/O
+    /// and remains available after disconnect. `Unavailable` is lost local
+    /// history, whereas `Custody::Unknown` is a retained uncertain outcome.
+    pub fn custody_result(&self, ticket: Ticket) -> Result<Custody, CustodyLookupError> {
+        self.ledger.lookup(ticket)
     }
 
     /// When to call [`Self::poll_io`] again even if the socket has nothing

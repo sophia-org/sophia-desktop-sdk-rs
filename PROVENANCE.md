@@ -1,5 +1,13 @@
 # Provenance
 
+## t333 custody lookup
+
+`custody_result` adds explicit unissued/evicted lookup results while preserving
+the existing optional query. Rust ledger boundary and scripted disconnect
+controls and C’s independent retention-boundary test cover the distinction.
+No wire or production pin changes; native-launcher transport remains a
+prerequisite to lifecycle parity, recorded in matrix revision 6.
+
 ## t333 atomic content batches
 
 The shell client now admits independent content records and whole candidates

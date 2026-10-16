@@ -219,4 +219,14 @@ fn a_batch_can_have_submitted_unknown_and_unsent_outcomes() {
     assert_eq!(connection.custody(Ticket(1)), Some(Custody::Submitted));
     assert_eq!(connection.custody(Ticket(2)), Some(Custody::Unknown));
     assert_eq!(connection.custody(Ticket(3)), Some(Custody::DroppedUnsent));
+    assert_eq!(connection.custody_result(Ticket(1)), Ok(Custody::Submitted));
+    assert_eq!(connection.custody_result(Ticket(2)), Ok(Custody::Unknown));
+    assert_eq!(
+        connection.custody_result(Ticket(3)),
+        Ok(Custody::DroppedUnsent)
+    );
+    assert_eq!(
+        connection.custody_result(Ticket(4)),
+        Err(sophia_shell_client::CustodyLookupError::Unissued)
+    );
 }

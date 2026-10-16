@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 5, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 6, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -52,7 +52,7 @@ differences, not evidence that every shell operation already has a counterpart.
 | Cancel | `sophia_ss_cancel` | `cancel_reservation(&token)`; prepared handle `cancel`/Drop | Delayed-content tokens require explicit cancellation in both SDKs. Rust's prepared handle alone cancels on Drop. No admission or tickets. |
 | Token identity | Session address, connection epoch and serial (0.10.0-dev) | Private shared identity checked against the connection | Wrong-connection and stale tokens cannot consume the live reservation. Do not move/reinitialize C session storage while a reservation is live. |
 | Custody query | `sophia_ss_outcome` | `custody(Ticket)` | Local/admitted, in-flight, Submitted, refused errno, dropped-unsent and unknown map to the corresponding Rust values. Submitted is not semantic acceptance. |
-| Old/unknown ticket | UNAVAILABLE for evicted, ARGUMENT for unissued | `None` for either | Rust does not currently distinguish those cases. Both retain the latest 256 tickets. |
+| Old/unknown ticket | UNAVAILABLE for evicted, ARGUMENT for unissued | `custody_result` returns `Unavailable` or `Unissued` | Existing `custody` retains its `Option` API. Both keep the latest 256 tickets; unavailability is not an uncertain remote outcome. |
 
 Rust scripted controls cover cancellation/drop without tickets or I/O, commit
 to Queued and then Submitted, invalid groups, full queues, upload-slot reuse,
@@ -103,3 +103,23 @@ namespace ownership; WM/output clients missing in Rust; experimental lock client
 missing in Rust; administration missing in both. Broker and portal coverage must
 follow their accepted public contracts. No missing capability is supplied by an
 IPC fallback. A codec alone does not establish client parity.
+
+## Custody lookup and native lifecycle prerequisites
+
+Rust `custody_result` distinguishes an evicted ticket from zero or a number
+never issued by that connection. Retained `Custody::Unknown` remains a separate
+outcome. Queries perform no I/O and work after disconnect. Tickets belong to
+one connection; numeric tickets do not detect accidental use on another one.
+Rust ledger and scripted disconnect checks match C's `old_and_unissued_tickets`
+retention-boundary test and existing uncertain-custody controls.
+
+The native launcher gap starts below lifecycle helpers: Rust has
+`ShellNativeLauncherRecord` codecs, but its shell client's `Outbound` and
+`Inbound` types do not carry them. Add negotiated native record transport,
+observations and atomic input/activation responses before a lifecycle helper.
+Then map C's opening/focus/revocation, input revision and ACK obligations,
+allocation/upload/retirement, presentation and activation outcomes against the
+pinned native contract. Rust's existing `ContentLifecycle` handles content
+presentation/actions; it is not the counterpart of C's `sophia_ns` helper.
+These capabilities remain unavailable to Rust clients until implemented and
+qualified; codec coverage alone cannot justify release parity.
