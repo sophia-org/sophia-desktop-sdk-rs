@@ -116,14 +116,47 @@ struct Report {
     acked: u64,
     snapshot_opens: usize,
 }
+// Literal API-1 bodies, independent of the codec under test. Semantic profile
+// policy belongs to the caller; this checks ordered delivery and cumulative ACK.
+fn application_events() -> Vec<u8> {
+    let mut bytes = vec![];
+    let mut seq = 3;
+    for kind in 18..=20 {
+        let mut body = 40u64.to_le_bytes().to_vec();
+        body.extend(3u64.to_le_bytes());
+        body.extend([7; 32]);
+        bytes.extend(record(kind, seq, &body));
+        seq += 1;
+    }
+    for kind in [21, 23, 24, 25] {
+        for outcome in 1u16..=if kind == 25 { 3 } else { 5 } {
+            let ids: &[u64] = match kind {
+                21 | 24 => &[40, 3],
+                23 => &[40, 3, 9],
+                25 => &[40, 3, 1, 9, 1],
+                _ => unreachable!(),
+            };
+            let mut body = vec![];
+            for id in ids {
+                body.extend(id.to_le_bytes());
+            }
+            body.extend(outcome.to_le_bytes());
+            body.extend([0; 6]);
+            bytes.extend(record(kind, seq, &body));
+            seq += 1;
+        }
+    }
+    bytes
+}
 #[derive(Clone, Copy, Default)]
-enum Fault {
+enum PeerScenario {
     #[default]
     None,
     ShortAck,
     AckError(u32),
     RevokeAccepted,
     RevokeUncertain,
+    ApplicationEvents,
 }
 fn fixture(
     event_first: bool,
@@ -131,16 +164,21 @@ fn fixture(
     eof: bool,
     snapshot: u8,
 ) -> (Session, thread::JoinHandle<Report>) {
-    fixture_fault(event_first, retry, eof, snapshot, Fault::None)
+    fixture_scenario(event_first, retry, eof, snapshot, PeerScenario::None)
 }
-fn fixture_fault(
+fn fixture_scenario(
     event_first: bool,
     retry: bool,
     eof: bool,
     snapshot: u8,
-    fault: Fault,
+    fault: PeerScenario,
 ) -> (Session, thread::JoinHandle<Report>) {
     let (client, mut peer) = UnixStream::pair().unwrap();
+    let caps = if matches!(fault, PeerScenario::ApplicationEvents) {
+        (1u64 << 23) - 1
+    } else {
+        128
+    };
     peer.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
     let server = thread::spawn(move || {
         let mut files = HashMap::<u32, String>::new();
@@ -217,7 +255,7 @@ fn fixture_fault(
                     if files[&fid] == "events" {
                         assert!(event_read.is_none());
                         assert_eq!(at, offset);
-                        if report.candidates == 2 && matches!(fault, Fault::RevokeAccepted) {
+                        if report.candidates == 2 && matches!(fault, PeerScenario::RevokeAccepted) {
                             peer.write_all(&frame(7, tag, &116u32.to_le_bytes()))
                                 .unwrap();
                             break;
@@ -235,7 +273,11 @@ fn fixture_fault(
                             "api" => {
                                 b"sophia-wm-files version=1 output_transport=9p2000.L\n".to_vec()
                             }
-                            "limits" => limits(),
+                            "limits" => {
+                                let mut value = limits();
+                                value[32..40].copy_from_slice(&caps.to_le_bytes());
+                                value
+                            }
                             "snapshot" => snapshot_bytes(snapshot),
                             _ => panic!("unexpected read"),
                         };
@@ -259,8 +301,10 @@ fn fixture_fault(
                             report.acked = u64::from_le_bytes(data[8..16].try_into().unwrap());
                             if report.acked >= 3 {
                                 let refusal = match fault {
-                                    Fault::ShortAck => Some(frame(119, tag, &15u32.to_le_bytes())),
-                                    Fault::AckError(errno) => {
+                                    PeerScenario::ShortAck => {
+                                        Some(frame(119, tag, &15u32.to_le_bytes()))
+                                    }
+                                    PeerScenario::AckError(errno) => {
                                         Some(frame(7, tag, &errno.to_le_bytes()))
                                     }
                                     _ => None,
@@ -293,7 +337,7 @@ fn fixture_fault(
                             if let Some(old) = &old_submit {
                                 assert_eq!(old, data);
                             }
-                            if kind == 263 && matches!(fault, Fault::RevokeUncertain) {
+                            if kind == 263 && matches!(fault, PeerScenario::RevokeUncertain) {
                                 let (event_tag, _) =
                                     event_read.take().expect("outstanding event read");
                                 // The submit has reached the peer, but no Submitted
@@ -303,8 +347,11 @@ fn fixture_fault(
                                 break;
                             }
                             if kind == 256 {
-                                queued.extend(record(16, 1, &128u64.to_le_bytes()));
+                                queued.extend(record(16, 1, &caps.to_le_bytes()));
                                 queued.extend(submitted(id, kind, 2));
+                                if matches!(fault, PeerScenario::ApplicationEvents) {
+                                    queued.extend(application_events());
+                                }
                                 if snapshot != 0 {
                                     queued.extend(cycle_bytes());
                                 }
@@ -355,7 +402,7 @@ fn fixture_fault(
         client,
         PipelineLimits::default(),
         WmFileNegotiationOffer {
-            required_capabilities: 128,
+            required_capabilities: caps,
             optional_capabilities: 0,
         },
         10,
@@ -380,8 +427,8 @@ fn fixture_fault(
     assert!(opening.io_interest().unwrap().immediate);
     assert_eq!(opening.state(), SessionState::Ready);
     assert_eq!(opening.epoch(), Some(7));
-    assert_eq!(opening.capabilities(), Some(128));
-    assert_eq!(opening.limits().unwrap().capability_ceiling, 128);
+    assert_eq!(opening.capabilities(), Some(caps));
+    assert_eq!(opening.limits().unwrap().capability_ceiling, caps);
     assert_eq!(opening.custody(1), Some(Custody::Submitted));
     assert!(opening.error().is_none());
     if snapshot == 12 {
@@ -455,15 +502,70 @@ fn negotiated_session_submits_retries_and_drains_ordered_events_over_real_pipeli
 }
 
 #[test]
+fn profile_commands_and_all_outcomes_remain_ordered_application_events() {
+    use sophia_wm_client::journal::Event;
+    let (mut s, peer) = fixture_scenario(true, false, false, 0, PeerScenario::ApplicationEvents);
+    let mut now = 10;
+    for seq in 3..=23 {
+        drive_until(&mut s, &mut now, |s| s.event().is_some());
+        let (header, event) = s.event().unwrap();
+        assert_eq!(header.sequence, seq);
+        let event = event.clone();
+        match &event {
+            Event::ProfilePrepare(c) | Event::ProfileActivate(c) | Event::ProfileRollback(c) => {
+                assert_eq!(header.kind as u16, 18 + (seq - 3) as u16);
+                assert_eq!(c.transaction.raw(), 40);
+                assert_eq!(c.identity.profile_generation, 3);
+                assert_eq!(c.identity.profile_digest, [7; 32]);
+            }
+            Event::ConfigurationOutcome(c) => {
+                assert_eq!(policy_projection_outcome_code(c.outcome), (seq - 5) as u16)
+            }
+            Event::ProjectionOutcome(c) => {
+                assert_eq!(policy_projection_outcome_code(c.outcome), (seq - 10) as u16)
+            }
+            Event::SessionOperationOutcome(c) => assert_eq!(
+                policy_projection_outcome_code(c.outcome.outcome),
+                (seq - 15) as u16
+            ),
+            Event::PresentationReceipt(c) => {
+                assert_eq!(c.receipt.outcome as u16, (seq - 20) as u16)
+            }
+            other => panic!("unexpected event {other:?}"),
+        }
+        assert!(s.acked() < seq);
+        s.dispatch(now, 65536).unwrap();
+        assert_eq!(
+            s.event().unwrap().1,
+            &event,
+            "dispatch must not replace a held event"
+        );
+        s.consume().unwrap();
+    }
+    drive_until(&mut s, &mut now, |s| {
+        s.acked() == 23 && s.obligations().deadline.is_none()
+    });
+    assert!(s.event().is_none());
+    assert_eq!(
+        s.state(),
+        SessionState::Ready,
+        "an outcome is not a transport failure"
+    );
+    assert_eq!(s.custody(1), Some(Custody::Submitted));
+    s.close();
+    assert_eq!(peer.join().unwrap().acked, 23);
+}
+
+#[test]
 fn ack_faults_and_revocation_preserve_exact_custody() {
     for fault in [
-        Fault::ShortAck,
-        Fault::AckError(22),
-        Fault::AckError(116),
-        Fault::RevokeAccepted,
-        Fault::RevokeUncertain,
+        PeerScenario::ShortAck,
+        PeerScenario::AckError(22),
+        PeerScenario::AckError(116),
+        PeerScenario::RevokeAccepted,
+        PeerScenario::RevokeUncertain,
     ] {
-        let (mut s, peer) = fixture_fault(true, false, false, 0, fault);
+        let (mut s, peer) = fixture_scenario(true, false, false, 0, fault);
         let mut now = 10;
         drive_until(&mut s, &mut now, |s| {
             s.acked() == 2 && s.obligations().deadline.is_none()
@@ -490,8 +592,8 @@ fn ack_faults_and_revocation_preserve_exact_custody() {
             thread::yield_now();
         }
         let errno = match fault {
-            Fault::AckError(errno) => Some(errno),
-            Fault::RevokeAccepted | Fault::RevokeUncertain => Some(116),
+            PeerScenario::AckError(errno) => Some(errno),
+            PeerScenario::RevokeAccepted | PeerScenario::RevokeUncertain => Some(116),
             _ => None,
         };
         let expected = if errno == Some(116) {
@@ -499,7 +601,7 @@ fn ack_faults_and_revocation_preserve_exact_custody() {
         } else {
             SessionState::Failed
         };
-        let custody = if matches!(fault, Fault::RevokeUncertain) {
+        let custody = if matches!(fault, PeerScenario::RevokeUncertain) {
             Custody::UnknownDisconnected
         } else {
             Custody::Submitted

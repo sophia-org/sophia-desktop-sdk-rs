@@ -1,6 +1,6 @@
 # WM API parity
 
-Revision 4, 2026-10-16. Contract: the pinned API-1 WM files, schema and golden
+Revision 5, 2026-10-16. Contract: the pinned API-1 WM files, schema and golden
 records in `spec/`. C reference: `fbfcdd8`, `src/sophia_wm_session.h`;
 Rust base: `622d9c0`, with the obligations and startup-wake changes in this
 series. This maps implemented capabilities, not production qualification.
@@ -26,8 +26,12 @@ Candidate kinds are ProfilePrepared, ProfileActive, ProfileRolledBack,
 Configuration, Dirty, Projection and SessionOperation. Event kinds are
 ProfilePrepare, ProfileActivate, ProfileRollback, ConfigurationOutcome, Cycle,
 ProjectionOutcome, SessionOperationOutcome and PresentationReceipt. Codec
-coverage includes each; integrated socket tests do not yet exercise every
-profile/outcome/Cycle-cause combination.
+coverage includes each. Independent socket tests now deliver all three profile
+commands and all five configuration/projection/session-operation outcomes and
+all three presentation outcomes, using literal wire bodies. They verify ordered
+retained heads, ACK progression and that semantic outcomes do not close the
+transport. These tests do not execute a policy rollback or correlate every
+Cycle cause with a submitted policy response.
 
 ## Remaining qualification
 
@@ -60,7 +64,7 @@ The [client guide](WM-CLIENT.md) describes ownership, errors and recovery.
 Scripted terminal checks are C's `ack_faults_and_revocation_keep_custody`
 and Rust's `ack_faults_and_revocation_preserve_exact_custody`; these do not
 replace the separate protected-admission fixture above.
-Also finish profile/outcome scenarios and the operation-to-export
+Also finish the remaining Cycle-cause and policy rollback scenarios and the operation-to-export
 evidence map. Publication, verified pins and foreign-language binding checks
 remain t333 gates. These requirements cannot be waived by marking both SDKs
 unsupported.
