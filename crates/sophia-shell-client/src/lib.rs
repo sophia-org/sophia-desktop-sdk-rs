@@ -18,8 +18,11 @@ pub use lifecycle::*;
 mod wire;
 
 use std::collections::VecDeque;
+use std::os::fd::{AsFd, BorrowedFd};
 use std::path::Path;
 use std::time::Duration;
+
+pub use sophia_9p_client::pipeline::IoInterest;
 
 use sophia_shell_protocol::{
     ContentAdmissionRefused, ShellContentRecord, ShellIndicatorActivation,
@@ -230,6 +233,23 @@ impl ShellConnection {
     /// then (or sooner, once an event is consumed). `None` when nothing waits.
     pub fn wake_deadline(&self) -> Option<std::time::Instant> {
         self.wire.wake_deadline()
+    }
+
+    /// Interests for a level-triggered external event loop. Call `poll_io`
+    /// and drain typed events before sleeping, then recompute after every
+    /// operation that changes connection state. If `immediate` is true,
+    /// service/drain again without sleeping; otherwise monitor `as_fd()` for
+    /// the requested readiness and hangup/errors. Limit the wait by
+    /// `wake_deadline()`, even when the socket has no activity. On waking,
+    /// call `poll_io`; readiness does not guarantee progress.
+    ///
+    /// Errors are terminal; stop registering this connection. Already received
+    /// typed events can still be drained through the usual receive methods.
+    /// This query performs no I/O and does not read the clock.
+    pub fn io_interest(&self) -> Result<IoInterest, ShellClientError> {
+        let mut interest = self.wire.io_interest()?;
+        interest.immediate |= !self.inbox.is_empty();
+        Ok(interest)
     }
 
     /// Makes one bounded I/O pass, then waits at most `maximum` for readiness.
@@ -454,11 +474,20 @@ impl ShellConnection {
     }
 
     /// Bounded nonblocking progress. A queue limit is a protocol failure, not
-    /// permission to discard an accepted outcome. Each call reads and writes
-    /// at most 256 KiB in at most 64 syscalls per direction.
+    /// permission to discard an accepted outcome. Each call runs at most 32
+    /// transport rounds, each limited to 256 KiB and 64 syscalls per direction.
     pub fn poll_io(&mut self) -> Result<(), ShellClientError> {
         self.wire
             .poll_io(&mut self.output, &mut self.inbox, &mut self.ledger)
+    }
+}
+
+/// Borrow the role socket for readiness monitoring only. Do not read, write,
+/// close, duplicate or change its flags outside the SDK. The connection keeps
+/// ownership; unregister it from an external event loop before dropping it.
+impl AsFd for ShellConnection {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.wire.as_fd()
     }
 }
 

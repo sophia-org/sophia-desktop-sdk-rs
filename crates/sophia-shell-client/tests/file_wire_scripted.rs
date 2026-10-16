@@ -1684,6 +1684,68 @@ fn a_clunk_the_pipeline_cannot_queue_fails_the_connection_closed() {
 
 // ---- liveness ----
 
+#[test]
+fn external_loop_drains_local_events_and_does_not_watch_idle_writability() {
+    use rustix::event::{PollFd, PollFlags, Timespec, poll};
+
+    let (mut connection, mut peer) = connect(bar(0));
+    for _ in 0..8 {
+        connection.poll_io().unwrap();
+        peer.pump();
+    }
+    assert_eq!(
+        connection.io_interest().unwrap(),
+        IoInterest {
+            readable: true,
+            writable: false,
+            immediate: false,
+        }
+    );
+    let mut fds = [PollFd::new(&connection, PollFlags::IN)];
+    assert_eq!(poll(&mut fds, Some(&Timespec::default())).unwrap(), 0);
+
+    let event = permit(&mut peer);
+    peer.push(event);
+    peer.flush_events();
+    assert_eq!(poll(&mut fds, Some(&Timespec::default())).unwrap(), 1);
+    assert!(fds[0].revents().contains(PollFlags::IN));
+    connection.poll_io().unwrap();
+    assert!(
+        connection.io_interest().unwrap().immediate,
+        "a retained typed event must prevent sleeping"
+    );
+    assert_eq!(
+        connection.take_content().unwrap().unwrap().1,
+        permit_record()
+    );
+    for _ in 0..8 {
+        connection.poll_io().unwrap();
+        peer.pump();
+    }
+    assert!(!connection.io_interest().unwrap().immediate);
+    enqueue_demand(&mut connection, 1);
+    assert!(
+        connection.io_interest().unwrap().immediate,
+        "new local admission must be driven before sleeping"
+    );
+    connection.poll_io().unwrap();
+    peer.pump();
+    assert_eq!(peer.walk_count("transaction"), 1);
+}
+
+#[test]
+fn external_loop_stops_monitoring_a_closed_connection() {
+    let (mut connection, mut peer) = connect(bar(0));
+    peer.close();
+    let end = Instant::now() + WAIT;
+    while connection.io_interest().is_ok() {
+        let _ = connection.poll_io();
+        assert!(Instant::now() < end, "closed connection remained live");
+        std::thread::yield_now();
+    }
+    assert!(connection.io_interest().is_err());
+}
+
 /// A request the client queues because a reply arrived (here the
 /// `transaction` open after its walk) must reach the wire in that same
 /// `poll_io` pass: nothing else would wake a caller that waits for the

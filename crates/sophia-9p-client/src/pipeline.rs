@@ -190,6 +190,19 @@ impl std::fmt::Display for PipelineError {
 
 impl std::error::Error for PipelineError {}
 
+/// A snapshot of external event-loop interests, not observed readiness.
+/// Use the connection's borrowed descriptor only for readiness monitoring;
+/// the SDK remains its sole reader and writer. Handle hangup/error wakes too.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct IoInterest {
+    /// Monitor read readiness.
+    pub readable: bool,
+    /// Monitor write readiness only while outgoing bytes remain queued.
+    pub writable: bool,
+    /// Service or drain local work before sleeping, even on a quiet socket.
+    pub immediate: bool,
+}
+
 /// One completed reply. `Error` is the server's `Rlerror`: a normal outcome,
 /// not a pipeline failure.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -642,20 +655,32 @@ impl Pipeline {
         Ok(())
     }
 
+    /// Interest for a level-triggered external event loop. Recompute after
+    /// queueing requests, polling or draining replies. A buffered reply needs
+    /// service without waiting for another socket edge.
+    pub fn io_interest(&self) -> Result<IoInterest, PipelineError> {
+        if self.poisoned {
+            return Err(PipelineError::Poisoned);
+        }
+        Ok(IoInterest {
+            readable: true,
+            writable: !self.out_buf.is_empty(),
+            immediate: !self.completed.is_empty(),
+        })
+    }
+
     /// Waits at most `maximum` for socket readiness, without consuming replies.
     /// Buffered replies return immediately. Write readiness is requested only
     /// while request bytes remain queued. Signals may end the wait early.
     pub fn wait_for_io(&self, maximum: Duration) -> Result<(), PipelineError> {
-        if self.poisoned {
-            return Err(PipelineError::Poisoned);
-        }
-        if !self.completed.is_empty() {
+        let interest = self.io_interest()?;
+        if interest.immediate {
             return Ok(());
         }
         let timeout =
             Timespec::try_from(maximum).map_err(|_| PipelineError::Limit("deadline overflow"))?;
         let mut flags = PollFlags::IN;
-        if !self.out_buf.is_empty() {
+        if interest.writable {
             flags |= PollFlags::OUT;
         }
         match poll(&mut [PollFd::new(&self.stream, flags)], Some(&timeout)) {

@@ -4,6 +4,7 @@
 //! writes, object fetch, event processing, the `events` read and its acks)
 //! take its next step, repeating while something keeps changing.
 use std::collections::VecDeque;
+use std::os::fd::{AsFd, BorrowedFd};
 
 use sophia_9p_client::pipeline::{PipelineError, Reply};
 use sophia_9p_records::Tag;
@@ -17,6 +18,24 @@ use crate::wire::Inbound;
 use crate::{ShellClientError, outbox::ClientOutbox};
 
 impl FileWire {
+    pub(crate) fn as_fd(&self) -> BorrowedFd<'_> {
+        self.pipeline.as_fd()
+    }
+
+    pub(crate) fn io_interest(
+        &self,
+    ) -> Result<sophia_9p_client::pipeline::IoInterest, ShellClientError> {
+        if let Some(error) = &self.fatal {
+            return Err(error.clone());
+        }
+        if self.peer_closed {
+            return Err(ShellClientError::PeerClosed);
+        }
+        let mut interest = self.pipeline.io_interest()?;
+        interest.immediate |= self.service_pending;
+        Ok(interest)
+    }
+
     pub(crate) fn poll_io(
         &mut self,
         output: &mut ClientOutbox,

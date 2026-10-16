@@ -1,5 +1,22 @@
 # Provenance
 
+## t333 external event-loop API
+
+The shell client now lends its socket through `AsFd` and reports read/write
+interests and immediate local work through `io_interest`. Applications combine
+these with the existing retry deadline in a level-triggered loop. The generic
+pipeline exposes the same interest value; its convenience wait uses that value.
+Typed events, newly admitted work and exhausted drive rounds prevent an unsafe
+sleep. Terminal connections report an error instead of live interests.
+
+Workspace tests and all-target Clippy pass, including new independent scripted
+checks for idle interests, queued requests, buffered replies/events and closure.
+The C SDK at `65ea947` passes `make check`, including its existing poll and retry
+controls. `API-PARITY.md` maps the APIs and names remaining clock, budget and
+role gaps. No wire contract or specification snapshot changed. Sophia production
+pin adoption and its export gates remain separate; this is not an installed
+desktop or performance qualification.
+
 ## t331 conditional retry clock
 
 Submission retry handling reads the clock only when a pending retry has no

@@ -245,7 +245,7 @@ pub(crate) struct FileWire {
     progress: u64,
     /// `poll_io` calls so far.
     pass: u64,
-    /// The previous bounded drive exhausted its rounds with local work left.
+    /// New admission or an exhausted drive needs another local service pass.
     service_pending: bool,
     /// A `Submitted` found among the buffered events while the submit reply
     /// was being settled, before normal intake reaches it; intake accepts
@@ -659,6 +659,7 @@ impl FileWire {
     }
 
     pub(crate) fn commit_encoded(&mut self) {
+        self.service_pending |= !self.staged.is_empty();
         if let Some((slot, resource)) = self.staged_begin.take() {
             self.uploads[slot as usize] = Some(Upload {
                 resource,

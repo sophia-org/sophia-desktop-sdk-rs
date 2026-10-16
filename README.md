@@ -16,9 +16,17 @@ Sophia checkout to build.
 | `sophia-lock-protocol` | The lock provider's `sophia_lock_fs_v1` file contract codec (experimental; see Contracts). |
 
 The shell role is the only one with a full role client here. The lock provider role has
-an experimental codec and no client. WM, output and admin modules arrive as
-their file contracts are implemented; nothing here claims a contract Sophia
-does not serve.
+an experimental codec and no client. WM and output file contracts and C clients
+already exist, but their Rust clients are missing. Administration also lacks a
+Rust client. [API parity](API-PARITY.md) records the current comparison and gaps.
+
+For an external level-triggered event loop, `ShellConnection` implements
+`AsFd` and exposes `io_interest()` alongside `wake_deadline()`. Drive `poll_io`
+and drain typed events before sleeping. Recompute interests after state changes;
+service `immediate` work without waiting, monitor only the requested socket
+interests (plus hangup/errors), and wake by the retry deadline even on an idle
+socket. The borrowed descriptor is for monitoring only; the SDK owns I/O.
+`wait_for_io` remains available for applications that need a simple wait.
 
 The protocol crate also carries the descriptor, tabs, shortcut/reference and
 revision-4 launcher records, native file codecs and pure validation. This

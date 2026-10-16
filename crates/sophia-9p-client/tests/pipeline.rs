@@ -633,6 +633,36 @@ fn a_server_errno_is_delivered_exactly_and_leaves_the_pipeline_usable() {
 // ---- replies that break the protocol ----
 
 #[test]
+fn external_loop_interest_tracks_queued_bytes_and_buffered_replies() {
+    let (client, peer) = scripted(
+        |stream| {
+            versioned(stream);
+            let (_, tag, _) = request(stream);
+            stream.write_all(&reply(105, tag, &QID_DIR)).unwrap();
+            let mut rest = Vec::new();
+            stream.read_to_end(&mut rest).unwrap();
+        },
+        PipelineLimits::default(),
+    );
+    let mut client = client.unwrap();
+    let idle = client.io_interest().unwrap();
+    assert!(idle.readable && !idle.writable && !idle.immediate);
+    let (tag, _) = client.attach(b"", b"").unwrap();
+    assert!(client.io_interest().unwrap().writable);
+    let end = deadline();
+    while !client.io_interest().unwrap().immediate {
+        client.poll().unwrap();
+        assert!(Instant::now() < end);
+        std::thread::yield_now();
+    }
+    assert!(!client.io_interest().unwrap().writable);
+    assert_eq!(client.take_reply().unwrap().0, tag);
+    assert_eq!(client.io_interest().unwrap(), idle);
+    drop(client);
+    peer.join().unwrap();
+}
+
+#[test]
 fn a_malformed_reply_poisons_the_pipeline() {
     type Queue = fn(&mut Pipeline) -> Tag;
     type Answer = fn(u16) -> Vec<u8>;
@@ -730,6 +760,7 @@ fn a_malformed_reply_poisons_the_pipeline() {
         let tag = queue(&mut pipeline);
         assert_eq!(pipeline.wait(tag, deadline()), Err(error), "{case}");
         assert!(pipeline.is_poisoned(), "{case}");
+        assert_eq!(pipeline.io_interest(), Err(PipelineError::Poisoned));
         assert_eq!(
             pipeline.attach(b"", b""),
             Err(PipelineError::Poisoned),
