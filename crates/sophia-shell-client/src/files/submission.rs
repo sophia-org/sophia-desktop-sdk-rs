@@ -82,6 +82,7 @@ impl FileWire {
                     resource,
                     offset,
                     remaining: bytes,
+                    acknowledged: 0,
                     tag: None,
                     ticket,
                     not_before: None,

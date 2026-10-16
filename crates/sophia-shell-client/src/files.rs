@@ -134,6 +134,7 @@ enum Current {
         resource: ContentResourceId,
         offset: u64,
         remaining: Vec<u8>,
+        acknowledged: usize,
         tag: Option<Tag>,
         ticket: u64,
         /// Set after `EAGAIN`: no write before this instant, nor in the
