@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 20, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 21, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -436,3 +436,16 @@ heads, custody ordering, malformed barriers, every fragment split, deadlines,
 64-record retention and capability dependencies. The 21 WM client tests and
 strict Clippy pass. The transport-control callback still needs the submission
 driver's ticket validation; this is not an integrated custody or session gate.
+
+Rust's provisional submission state machine now owns one immutable candidate,
+keeps 64 custody results, allocates independent domain IDs and waits for the
+Submitted ACK before the next transaction walk. It retains candidate bytes and
+submission ID across EAGAIN, with a later-pass requirement and 4–256 ms backoff
+or journal progress. Submitted wins either reply ordering; EALREADY requires
+that observation. Disconnect preserves Submitted/refusal and distinguishes
+unissued work from uncertain submission. Nine tests cover these rules, partial
+writes, deadline bounds, history eviction and the journal-control connection.
+All 30 WM client tests and strict Clippy pass. C's counterpart remains
+`wm_session/submission.c`. The Rust operation driver must still connect this
+state machine to actual pipeline tags, ordered reply draining and terminal
+handling; scripted session/export qualification is not yet established.

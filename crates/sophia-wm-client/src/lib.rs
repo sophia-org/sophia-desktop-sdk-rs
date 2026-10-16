@@ -12,3 +12,6 @@ pub mod journal;
 /// negotiated WM session or a stable application entrypoint yet.
 #[doc(hidden)]
 pub mod startup;
+/// Provisional submission state machine for the session driver.
+#[doc(hidden)]
+pub mod submission;

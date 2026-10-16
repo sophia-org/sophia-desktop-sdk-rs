@@ -87,6 +87,9 @@ impl Candidate {
 }
 
 impl EncodedCandidate {
+    pub(crate) fn into_bytes(self) -> Vec<u8> {
+        self.bytes
+    }
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
