@@ -1,6 +1,6 @@
 # Portal SDK parity
 
-Revision 14, 2026-10-16. Recipient components are developing; there is no complete
+Revision 15, 2026-10-16. Recipient components are developing; there is no complete
 portal client or parity claim.
 
 The unchanged recipient contract in `spec/portal-client-files.md` comes from
@@ -222,3 +222,20 @@ C transfer/snapshot/request tests and strict Clippy pass. Rebuilt peers pass
 the nine existing production gates as regression checks; these do not exercise
 the new transfer path. Transfer transport composition and production delivery,
 watch and the remaining recovery audits still need implementation.
+
+Rust `transfer::Transfer` and C `sophia_pt_*` now drive the retained transfer
+reader on an exclusive authenticated root. Both borrow caller payload storage,
+use bounded dispatch and one absolute deadline, and return the same role after
+EOF/clunk without copying the payload. Rust drops its owned role on failure;
+C callers close their borrowed fd. C borrows an immovable opening exclusively
+and restores it on successful finish. Scratch progress is not a completed result.
+
+Both independent peers pass production delivery, absent-object and mid-read
+revocation gates. Delivery verifies the original buffer pointer, unchanged
+unused bytes and root-only ownership. Absence preserves ENOENT. Revocation
+after payload receipt but before completion returns ESTALE without exposing a
+result; buffered bytes are not claimed to be recalled. All twelve external
+portal gates, seventeen Rust component tests and strict Clippy pass. The
+production payload is seven supplied bytes; the 64 KiB boundary remains
+component evidence. Watch, transfer recovery/local cancellation and release
+qualification remain open.

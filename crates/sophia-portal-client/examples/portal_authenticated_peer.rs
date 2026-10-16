@@ -78,6 +78,80 @@ fn main() {
     );
     assert!(opened.info.epoch > 0 && opened.pipeline.fid_count() == 1);
     assert!(opened.pipeline.is_quiescent());
+    if mode.starts_with("sdk-transfer") {
+        let absent = mode == "sdk-transfer-absent";
+        let revoked = mode == "sdk-transfer-revoke";
+        let mut storage = vec![0xa5; 65536];
+        let pointer = storage.as_ptr();
+        let now = start.elapsed().as_millis() as u64;
+        let mut transfer =
+            sophia_portal_client::transfer::Transfer::new(opened, &mut storage, now, now + 3000)
+                .unwrap();
+        let mut paused = false;
+        while transfer.result().is_none() && transfer.error().is_none() {
+            assert!(Instant::now() < deadline);
+            let interest = transfer.io_interest().unwrap();
+            let fd = transfer.fd().unwrap();
+            let mut flags = rustix::event::PollFlags::IN;
+            if interest.writable {
+                flags |= rustix::event::PollFlags::OUT;
+            }
+            let mut fds = [rustix::event::PollFd::new(&fd, flags)];
+            let wait = Duration::from_millis(if interest.immediate {
+                0
+            } else {
+                transfer
+                    .deadline()
+                    .unwrap()
+                    .saturating_sub(start.elapsed().as_millis() as u64)
+            });
+            rustix::event::poll(
+                &mut fds,
+                Some(&rustix::event::Timespec::try_from(wait).unwrap()),
+            )
+            .unwrap();
+            let result = transfer.dispatch(
+                start.elapsed().as_millis() as u64,
+                if revoked && !paused { 1 } else { 65536 },
+            );
+            if !absent && !revoked {
+                result.unwrap();
+            }
+            if revoked && !paused && transfer.received() > 0 {
+                assert!(transfer.result().is_none());
+                let report = std::env::var_os("SOPHIA_TEST_LOCK_REPORT").unwrap();
+                std::fs::write(&report, b"transfer-partial\n").unwrap();
+                while std::fs::read_to_string(&report).unwrap() != "continue\n" {
+                    assert!(Instant::now() < deadline);
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                paused = true;
+            }
+        }
+        if absent || revoked {
+            assert!(transfer.result().is_none() && transfer.fd().is_none());
+            assert_eq!(
+                transfer.error(),
+                Some(&sophia_portal_client::transfer::Error::Snapshot(
+                    sophia_portal_client::snapshot::Error::Remote(if absent { 2 } else { 116 })
+                ))
+            );
+            assert!(!revoked || paused);
+        } else {
+            let (role, bytes) = transfer.finish().unwrap();
+            assert_eq!(bytes, b"granted");
+            assert_eq!(bytes.as_ptr(), pointer);
+            assert_eq!(role.pipeline.fid_count(), 1);
+            assert!(role.pipeline.is_quiescent());
+            assert!(storage[7..].iter().all(|b| *b == 0xa5));
+        }
+        std::fs::write(
+            std::env::var_os("SOPHIA_TEST_LOCK_REPORT").unwrap(),
+            b"transfer-done\n",
+        )
+        .unwrap();
+        return;
+    }
     if request_mode {
         let now = start.elapsed().as_millis() as u64;
         let mut request = sophia_portal_client::capture_request::Request::new(

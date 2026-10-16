@@ -141,6 +141,20 @@ impl<'a> Fetch<'a> {
     pub fn result(&self) -> Option<&[u8]> {
         (self.stage == Stage::Ready && self.error.is_none()).then_some(&self.bytes[..self.used])
     }
+    pub fn received(&self) -> usize {
+        self.used
+    }
+    /// Return the completed transfer slice without copying. Metadata fetches
+    /// and unfinished transfers cannot use this handoff.
+    pub fn into_transfer(self) -> Result<&'a mut [u8], Error> {
+        if self.result().is_none() || self.file != File::Transfer {
+            return Err(Error::Invalid);
+        }
+        match self.bytes {
+            Storage::Borrowed(bytes) => Ok(&mut bytes[..self.used]),
+            Storage::Inline(_) => Err(Error::Invalid),
+        }
+    }
     pub fn close(&mut self) {
         self.error.get_or_insert(Error::Closed);
     }
