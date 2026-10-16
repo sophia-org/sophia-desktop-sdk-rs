@@ -54,12 +54,73 @@ fn main() {
             .unwrap();
     }
     let opened = opening.into_opened().unwrap();
-    assert_eq!(opened.info.request, RequestCapability::Unavailable);
+    let frame_mode = std::env::var("SOPHIA_TEST_PORTAL_BOUNDARY").unwrap() == "sdk-frame";
+    assert_eq!(
+        opened.info.request,
+        if frame_mode {
+            RequestCapability::OutputCaptureV1
+        } else {
+            RequestCapability::Unavailable
+        }
+    );
     assert!(opened.info.epoch > 0 && opened.pipeline.fid_count() == 1);
     assert!(opened.pipeline.is_quiescent());
+    if frame_mode {
+        let now = start.elapsed().as_millis() as u64;
+        let mut frame = sophia_portal_client::frame::Frame::new(
+            opened,
+            Vec::with_capacity(256 * 128 * 4),
+            now,
+            now + 3000,
+        )
+        .unwrap();
+        while frame.result().is_none() {
+            assert!(Instant::now() < deadline);
+            let interest = frame.io_interest().unwrap();
+            let fd = frame.fd().unwrap();
+            let mut flags = rustix::event::PollFlags::IN;
+            if interest.writable {
+                flags |= rustix::event::PollFlags::OUT;
+            }
+            let mut fds = [rustix::event::PollFd::new(&fd, flags)];
+            let wait = Duration::from_millis(if interest.immediate {
+                0
+            } else {
+                frame
+                    .deadline()
+                    .unwrap()
+                    .saturating_sub(start.elapsed().as_millis() as u64)
+            });
+            rustix::event::poll(
+                &mut fds,
+                Some(&rustix::event::Timespec::try_from(wait).unwrap()),
+            )
+            .unwrap();
+            frame
+                .dispatch(start.elapsed().as_millis() as u64, 65536)
+                .unwrap();
+        }
+        let (opened, info, pixels) = frame.finish().unwrap();
+        assert_eq!(
+            (
+                info.output,
+                info.output_generation,
+                info.presentation_generation
+            ),
+            (7, 9, 11)
+        );
+        assert_eq!((info.width, info.height), (256, 128));
+        assert_eq!(pixels.len(), 256 * 128 * 4);
+        assert!(pixels.iter().all(|b| *b == 17));
+        assert_eq!(opened.pipeline.fid_count(), 1);
+    }
     std::fs::write(
         std::env::var_os("SOPHIA_TEST_LOCK_REPORT").unwrap(),
-        b"started\n",
+        if frame_mode {
+            b"frame\n".as_slice()
+        } else {
+            b"started\n"
+        },
     )
     .unwrap();
 }

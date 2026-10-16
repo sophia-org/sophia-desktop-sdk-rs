@@ -1,6 +1,6 @@
 # Portal SDK parity
 
-Revision 8, 2026-10-16. Recipient components are developing; there is no complete
+Revision 9, 2026-10-16. Recipient components are developing; there is no complete
 portal client or parity claim.
 
 The unchanged recipient contract in `spec/portal-client-files.md` comes from
@@ -121,3 +121,12 @@ deadline expiry and cancellation. C additionally tests insufficient capacity.
 All nine Rust client tests and strict Clippy pass; C's frame-client test passes.
 These are scripted peers, not production frame-delivery or revocation evidence.
 Capture requests and the remaining recipient operations are still unfinished.
+
+Both independently built peers now pass production authenticated delivery of
+a supplied 256×128 RGBA8 frame. The trusted fixture submits the capture request
+and the real coordinator installs the frame; each SDK authenticates, reads it,
+checks output/generation/presentation identities and every pixel, and retains
+only the role root afterwards. Both external startup/delivery gates and strict
+Rust Clippy pass. This qualifies the SDK/export boundary with supplied policy
+and pixels, not SDK request custody, mid-read revocation, native presentation,
+physical installation or performance.
