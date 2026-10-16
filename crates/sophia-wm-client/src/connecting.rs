@@ -66,6 +66,18 @@ impl Connecting {
     pub fn deadline(&self) -> u64 {
         self.deadline
     }
+    /// The next timer wake, including negotiation retries before handoff.
+    /// Using only the bootstrap deadline can sleep past an EAGAIN backoff.
+    pub fn wake_deadline(&self) -> Option<u64> {
+        if self.error.is_some() {
+            return None;
+        }
+        match self.phase.as_ref()? {
+            Phase::Version(v) => Some(v.deadline()),
+            Phase::Files(f) => Some(f.deadline()),
+            Phase::Session(s) => s.wake_deadline(),
+        }
+    }
     pub fn fd(&self) -> Option<BorrowedFd<'_>> {
         match self.phase.as_ref()? {
             Phase::Version(v) => v.fd(),
@@ -77,11 +89,13 @@ impl Connecting {
         if let Some(error) = &self.error {
             return Err(error.clone());
         }
-        Ok(match self.phase.as_ref().ok_or(SessionError::Closed)? {
+        let mut interest = match self.phase.as_ref().ok_or(SessionError::Closed)? {
             Phase::Version(v) => v.io_interest(),
             Phase::Files(f) => f.io_interest()?,
             Phase::Session(s) => s.io_interest()?,
-        })
+        };
+        interest.immediate |= self.ready();
+        Ok(interest)
     }
     /// One phase performs socket I/O per call; phase transitions do not
     /// replenish the caller's budget. Each next phase is queued without I/O.

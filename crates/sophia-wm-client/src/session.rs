@@ -17,6 +17,21 @@ pub enum SessionState {
     Stale,
     Failed,
 }
+
+/// Passive work obligations, equivalent to C's sophia_ws_obligations. A
+/// consumed watermark is not acknowledged until its write reply arrives.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Obligations {
+    pub consumed: u64,
+    pub acked: u64,
+    pub submitted_sequence: u64,
+    pub deadline: Option<u64>,
+    pub retry_at: Option<u64>,
+    pub event_pending: bool,
+    pub snapshot_pending: bool,
+    pub snapshot_ready: bool,
+    pub waiting_for_ack: bool,
+}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SessionError {
     Startup(crate::startup::Error),
@@ -239,6 +254,27 @@ impl Session {
             .into_iter()
             .flatten()
             .min()
+        }
+    }
+    pub fn obligations(&self) -> Obligations {
+        let live = self.error.is_none();
+        Obligations {
+            consumed: self.journal.consumed(),
+            acked: self.acked,
+            submitted_sequence: self.submission.submitted_sequence(),
+            deadline: if live { self.deadline() } else { None },
+            retry_at: if live {
+                [self.submission.retry_at(), self.snapshot.retry_at()]
+                    .into_iter()
+                    .flatten()
+                    .min()
+            } else {
+                None
+            },
+            event_pending: live && self.journal.head().is_some(),
+            snapshot_pending: live && self.snapshot.pending(),
+            snapshot_ready: live && self.snapshot.result().is_some(),
+            waiting_for_ack: live && self.submission.waiting_for_ack(self.acked),
         }
     }
     fn progress(&self) -> Progress {

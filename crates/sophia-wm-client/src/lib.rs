@@ -19,4 +19,4 @@ pub mod startup;
 /// Provisional submission state machine for the session driver.
 #[doc(hidden)]
 pub mod submission;
-pub use session::{Session, SessionError, SessionState};
+pub use session::{Obligations, Session, SessionError, SessionState};

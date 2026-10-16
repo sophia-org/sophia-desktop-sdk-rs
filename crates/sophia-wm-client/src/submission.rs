@@ -121,6 +121,10 @@ impl Submission {
     pub fn submitted_sequence(&self) -> u64 {
         self.submitted_sequence
     }
+    pub(crate) fn waiting_for_ack(&self, acked: u64) -> bool {
+        self.active.as_ref().is_some_and(|a| a.stage == Stage::Walk)
+            && acked < self.submitted_sequence
+    }
     pub fn deadline(&self) -> Option<u64> {
         self.active
             .as_ref()

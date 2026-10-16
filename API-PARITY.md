@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 24, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 25, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -485,3 +485,10 @@ four added controls cover capacity, root ownership, deadline continuity and
 invalid offers. The workspace suite, added tests and strict Clippy pass.
 These close the startup gaps above. Complete WM operation/error coverage and
 paired production-export qualification still gate release and pin adoption.
+
+The [WM operation matrix](WM-PARITY.md) now maps every C session entrypoint,
+ownership differences and remaining qualification. Rust adds the passive
+obligations view and fixes Connecting's missing negotiation retry wake.
+The socket regression advances to the advertised EAGAIN wake, not the much
+later bootstrap deadline; terminal flags and snapshot readiness are checked.
+Early-startup introspection and broader terminal/export coverage remain open.

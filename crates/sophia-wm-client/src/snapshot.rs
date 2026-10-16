@@ -74,6 +74,9 @@ impl Snapshot {
     pub(crate) fn deadline(&self) -> Option<u64> {
         self.deadline
     }
+    pub(crate) fn pending(&self) -> bool {
+        !matches!(self.stage, Stage::Idle | Stage::Ready)
+    }
     pub(crate) fn retry_at(&self) -> Option<u64> {
         self.retry_at
     }

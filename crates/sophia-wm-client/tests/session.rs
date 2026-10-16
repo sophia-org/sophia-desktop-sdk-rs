@@ -245,7 +245,9 @@ fn fixture(
                                 u32::from_le_bytes(data[16..20].try_into().unwrap()) as usize,
                                 candidate.len()
                             );
-                            if kind == 263 && retry && report.retries == 0 {
+                            if ((kind == 263 && retry) || (kind == 256 && snapshot == 12))
+                                && report.retries == 0
+                            {
                                 report.retries += 1;
                                 old_submit = Some(data.to_vec());
                                 peer.write_all(&frame(7, tag, &11u32.to_le_bytes()))
@@ -316,10 +318,23 @@ fn fixture(
     )
     .unwrap();
     let end = Instant::now() + Duration::from_secs(2);
+    let mut startup_now = 10;
+    let mut saw_retry_wake = false;
     while !opening.ready() {
         assert!(Instant::now() < end);
-        opening.dispatch(10, 65536).unwrap();
+        opening.dispatch(startup_now, 65536).unwrap();
+        if let Some(wake) = opening.wake_deadline()
+            && snapshot == 12
+            && wake < 1000
+        {
+            saw_retry_wake = true;
+            startup_now = startup_now.max(wake);
+        }
         thread::yield_now();
+    }
+    assert!(opening.io_interest().unwrap().immediate);
+    if snapshot == 12 {
+        assert!(saw_retry_wake);
     }
     (opening.take_session().unwrap(), server)
 }
@@ -365,10 +380,21 @@ fn negotiated_session_submits_retries_and_drains_ordered_events_over_real_pipeli
         drive_until(&mut s, &mut now, |s| s.event().is_some());
         assert_eq!(s.custody(id), Some(Custody::Submitted));
         assert_eq!(s.event().unwrap().0.sequence, 4);
+        assert!(s.obligations().event_pending);
+        assert_eq!(s.obligations().submitted_sequence, 3);
         assert_eq!(s.consumed(), 3);
         s.consume().unwrap();
         drive_until(&mut s, &mut now, |s| s.acked() == 4);
         s.close();
+        let obligations = s.obligations();
+        assert!(
+            !obligations.event_pending
+                && !obligations.snapshot_pending
+                && !obligations.snapshot_ready
+        );
+        assert_eq!(obligations.deadline, None);
+        assert_eq!(obligations.retry_at, None);
+        assert_eq!(obligations.submitted_sequence, 3);
         assert_eq!(s.custody(id), Some(Custody::Submitted));
         let report = peer.join().unwrap();
         assert_eq!(report.candidates, 2);
@@ -423,6 +449,8 @@ fn snapshot_freezes_cycle_identity_and_requires_verified_eof_and_clunk() {
         let mut now = 10;
         drive_until(&mut s, &mut now, |s| s.event().is_some());
         s.request_snapshot(now + 100_000).unwrap();
+        assert!(s.obligations().snapshot_pending);
+        assert!(!s.obligations().snapshot_ready);
         assert_eq!(
             s.request_snapshot(now + 100_000),
             Err(SessionError::SnapshotBusy)
@@ -431,6 +459,8 @@ fn snapshot_freezes_cycle_identity_and_requires_verified_eof_and_clunk() {
         s.consume().unwrap();
         drive_until(&mut s, &mut now, |s| s.snapshot_result().is_some());
         let value = s.snapshot_result().unwrap();
+        assert!(!s.obligations().snapshot_pending);
+        assert!(s.obligations().snapshot_ready);
         assert_eq!(value.transaction.raw(), 55);
         assert_eq!(value.snapshot.scene.generation, 9);
         assert_eq!(value.snapshot.scene.outputs.len(), 1);
@@ -442,6 +472,19 @@ fn snapshot_freezes_cycle_identity_and_requires_verified_eof_and_clunk() {
         let report = peer.join().unwrap();
         assert_eq!(report.snapshot_opens, if mode == 7 { 2 } else { 1 });
     }
+}
+
+#[test]
+fn connecting_exposes_negotiation_retry_wake_before_bootstrap_deadline() {
+    let (mut session, peer) = fixture(true, false, false, 12);
+    assert_eq!(session.state(), SessionState::Ready);
+    let mut now = 14;
+    session.consume().unwrap();
+    drive_until(&mut session, &mut now, |s| {
+        s.acked() == 3 && s.obligations().deadline.is_none()
+    });
+    session.close();
+    assert_eq!(peer.join().unwrap().retries, 1);
 }
 
 #[test]
