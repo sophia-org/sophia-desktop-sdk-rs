@@ -1,6 +1,6 @@
 # Administrative SDK parity
 
-Revision 5, 2026-10-16. Neither SDK yet provides the typed administrative
+Revision 6, 2026-10-16. Neither SDK yet provides the complete administrative
 client. This is required t333 work, not an unsupported-role waiver.
 
 The pinned file contract is copied unchanged from Sophia
@@ -80,3 +80,25 @@ storage identity, EOF/clunk barriers, malformed EOF, overflow, oversized replies
 clunk refusal, EAGAIN refusal, deadline and clock regression. Strict Clippy
 passes. These tests supply matched replies; connection/tag ownership, readiness,
 bounded dispatch, startup, invocation custody and production gates remain.
+
+Both SDKs now have provisional startup drivers on an exclusively owned,
+already-versioned pipeline with no fids. They attach once, fetch info through
+EOF/clunk, enforce advertised timeout ceilings (10000/2000/60000 ms), and open
+ctl for writing with an iounit sufficient for a complete 512-byte command.
+They hand off the same pipeline, root and ctl; no reconnect or fallback occurs.
+The caller selects the admitted HostDomain endpoint. Raw-socket connection and
+version negotiation facades remain separate work.
+
+Independent socket tests cover fragmented info, one-byte I/O budgets, exact
+file order, retained fids, no idle dispatch I/O, directory refusal, excessive
+timeouts, insufficient ctl iounit, clunk refusal and expiry before sending.
+Clock regression leaves state unchanged. Five Rust client tests and C's startup
+test pass; strict Clippy passes. Rust shares one byte/syscall budget across at
+most 32 rounds. C calls its bounded pipeline service once per dispatch, then
+queues the next request and exposes write readiness. Neither sleeps.
+
+Rust owns and drops the failed pipeline; C marks failure and requires the
+caller to close its borrowed descriptor. C reports transport failures separately
+from snapshot/protocol failures and retains the raw transport result. Startup
+alone is not a usable command client: catalog retention/refresh, invocation
+custody, status scheduling, final facade and production gates remain.

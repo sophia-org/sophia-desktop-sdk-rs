@@ -575,3 +575,6 @@ and its production gates remain missing.
 Admin map 5 adds matched-reply snapshot state machines in both SDKs, with
 reusable storage and EOF/clunk barriers. The full administrative connection
 driver and its production qualification remain missing.
+
+Admin map 6 adds paired pipeline startup, bounded dispatch and same-connection
+handoff through info/ctl. Command sessions and production qualification remain.
