@@ -1,6 +1,6 @@
 # Output API parity
 
-Revision 6, 2026-10-16. Contract: API-1 output files in `spec/`.
+Revision 7, 2026-10-16. Contract: API-1 output files in `spec/`.
 C reference: `a88efe7`, `src/sophia_output_session.h`.
 Rust has codecs, provisional fixed-file startup and an immutable submission
 lane, ordered journal and topology fetcher joined by a developing session.
@@ -81,3 +81,10 @@ Connecting facade through one-time Session transfer. No extra clock or readiness
 syscall was added. All 35 output-client tests and strict Clippy pass; C’s full
 suite passes with its existing independent retry/domain/startup controls.
 Terminal socket faults and paired production exports remain required.
+
+Independent C and Rust socket tests now cover short ACK, ACK EINVAL/ESTALE,
+and disconnect before/after proposal custody through both startup paths.
+Terminal state and confirmed/uncertain custody survive explicit close. Rust’s
+37 output-client tests and strict Clippy, and C’s full suite, pass.
+[Output ownership and recovery](OUTPUT-CLIENT.md) documents caller obligations.
+Protected grant revocation and paired production exports remain unqualified.

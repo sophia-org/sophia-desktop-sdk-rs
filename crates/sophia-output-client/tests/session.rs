@@ -88,10 +88,24 @@ fn rr(tag: u16, data: &[u8]) -> Vec<u8> {
     b.extend(data);
     frame(117, tag, &b)
 }
+#[derive(Clone, Copy)]
+enum PeerFault {
+    Ack(u32),
+    Disconnect { accepted: bool },
+}
+
 fn fixture(refuse: bool) -> (Session, thread::JoinHandle<u64>) {
     fixture_mode(refuse, false, false)
 }
 fn fixture_mode(refuse: bool, attached: bool, retry: bool) -> (Session, thread::JoinHandle<u64>) {
+    fixture_fault(refuse, attached, retry, None)
+}
+fn fixture_fault(
+    refuse: bool,
+    attached: bool,
+    retry: bool,
+    fault: Option<PeerFault>,
+) -> (Session, thread::JoinHandle<u64>) {
     let (client, mut peer) = UnixStream::pair().unwrap();
     peer.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
     let handle = thread::spawn(move || {
@@ -176,6 +190,15 @@ fn fixture_mode(refuse: bool, attached: bool, retry: bool) -> (Session, thread::
                             acked = u64::from_le_bytes(data[8..16].try_into().unwrap());
                             if !refuse && acked >= 3 {
                                 assert!(topology_clunked);
+                                if let Some(PeerFault::Ack(errno)) = fault {
+                                    let response = if errno == 0 {
+                                        frame(119, tag, &15u32.to_le_bytes())
+                                    } else {
+                                        frame(7, tag, &errno.to_le_bytes())
+                                    };
+                                    peer.write_all(&response).unwrap();
+                                    break;
+                                }
                             }
                         }
                         "submit" => {
@@ -183,6 +206,20 @@ fn fixture_mode(refuse: bool, attached: bool, retry: bool) -> (Session, thread::
                             let kind = u16::from_le_bytes(candidate[6..8].try_into().unwrap());
                             if kind == 257 {
                                 proposal_attempts += 1;
+                                if let Some(PeerFault::Disconnect { accepted }) = fault {
+                                    if accepted {
+                                        let mut body = data[8..16].to_vec();
+                                        body.extend(257u16.to_le_bytes());
+                                        body.extend([0; 6]);
+                                        let bytes = event(18, next_sequence, &body);
+                                        let (event_tag, count) =
+                                            pending.take().expect("pending event read");
+                                        assert!(count >= bytes.len());
+                                        peer.write_all(&rr(event_tag, &bytes)).unwrap();
+                                    }
+                                    break;
+                                }
+
                                 assert_eq!(candidate[96..100], (-2i32).to_le_bytes());
                                 if retry && proposal_attempts == 1 {
                                     retry_bytes = Some((candidate.clone(), data.to_vec()));
@@ -433,6 +470,95 @@ fn proposals_retry_exact_bytes_and_keep_custody_on_both_startup_paths() {
             assert_eq!(s.next_transaction().unwrap(), 51);
             s.close();
             assert_eq!(peer.join().unwrap(), 7);
+        }
+    }
+}
+
+#[test]
+fn ack_faults_preserve_custody_and_terminal_state_on_both_paths() {
+    for attached in [false, true] {
+        for errno in [0, 22, 116] {
+            let (mut s, peer) = fixture_fault(false, attached, false, Some(PeerFault::Ack(errno)));
+            let end = Instant::now() + Duration::from_secs(2);
+            while s.event().is_none() {
+                assert!(Instant::now() < end);
+                s.dispatch(2, 4096).unwrap();
+                thread::yield_now();
+            }
+            s.consume().unwrap();
+            loop {
+                assert!(Instant::now() < end);
+                if s.dispatch(3, 4096).is_err() {
+                    break;
+                }
+                thread::yield_now();
+            }
+            assert_eq!(
+                s.state(),
+                if errno == 116 {
+                    SessionState::Stale
+                } else {
+                    SessionState::Failed
+                }
+            );
+            assert_eq!(s.remote_error(), (errno != 0).then_some(errno));
+            assert_eq!(s.custody(1), Some(Custody::Submitted));
+            assert!(s.acked() < 3);
+            let state = s.state();
+            let error = s.error().cloned();
+            s.close();
+            assert_eq!(s.state(), state);
+            assert_eq!(s.error(), error.as_ref());
+            assert!(s.fd().is_none());
+            assert!(s.event().is_none());
+            assert_eq!(s.wake_deadline(), None);
+            assert_eq!(peer.join().unwrap(), 3);
+        }
+    }
+}
+
+#[test]
+fn disconnect_does_not_confuse_confirmed_and_uncertain_proposals() {
+    for attached in [false, true] {
+        for accepted in [false, true] {
+            let (mut s, peer) = fixture_fault(
+                false,
+                attached,
+                false,
+                Some(PeerFault::Disconnect { accepted }),
+            );
+            let end = Instant::now() + Duration::from_secs(2);
+            while s.event().is_none() {
+                assert!(Instant::now() < end);
+                s.dispatch(2, 4096).unwrap();
+                thread::yield_now();
+            }
+            s.consume().unwrap();
+            while s.acked() < 3 || s.obligations().deadline.is_some() {
+                assert!(Instant::now() < end);
+                s.dispatch(2, 4096).unwrap();
+                thread::yield_now();
+            }
+            let ticket = s
+                .submit(TransactionId::from_raw(1), &proposal(), 1900)
+                .unwrap();
+            loop {
+                assert!(Instant::now() < end);
+                if s.dispatch(3, 4096).is_err() {
+                    break;
+                }
+                thread::yield_now();
+            }
+            let expected = if accepted {
+                Custody::Submitted
+            } else {
+                Custody::UnknownDisconnected
+            };
+            assert_eq!(s.custody(ticket), Some(expected));
+            assert!(s.fd().is_none());
+            s.close();
+            assert_eq!(s.custody(ticket), Some(expected));
+            peer.join().unwrap();
         }
     }
 }
