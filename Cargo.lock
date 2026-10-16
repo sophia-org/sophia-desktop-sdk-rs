@@ -130,6 +130,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sophia-output-client"
+version = "0.3.0"
+dependencies = [
+ "sophia-9p-client",
+ "sophia-9p-records",
+ "sophia-output-protocol",
+]
+
+[[package]]
 name = "sophia-output-protocol"
 version = "0.3.0"
 dependencies = [

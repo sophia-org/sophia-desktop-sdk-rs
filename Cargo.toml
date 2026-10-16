@@ -10,6 +10,7 @@ members = [
     "crates/sophia-wm-protocol",
     "crates/sophia-wm-client",
     "crates/sophia-output-protocol",
+    "crates/sophia-output-client",
     "crates/sophia-shell-protocol",
 ]
 resolver = "3"
