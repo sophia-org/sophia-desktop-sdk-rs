@@ -1,6 +1,6 @@
 # Portal SDK parity
 
-Revision 19, 2026-10-16. Recipient components are developing; there is no complete
+Revision 20, 2026-10-16. Recipient components are developing; there is no complete
 portal client or parity claim.
 
 The unchanged recipient contract in `spec/portal-client-files.md` comes from
@@ -307,3 +307,20 @@ These tests pass in native C and Rust. Production code is unchanged. They do
 not yet force a reply already decoded when cancellation is requested, malformed
 watch reads during flush, or every pre-read cancellation stage. Those cases,
 shared frame/capture composition and the remaining release gates stay open.
+
+
+The shared-session suite now adds five cases. Empty and payload-bearing watch
+reads during flush fail immediately, even without Rflush. Cancellation before
+walk dispatch or while the peer holds the open reply clunks the watch without
+issuing its read or a flush, while foreground status work continues.
+
+A peer handshake also sends status and revocation in one batch before local
+cancellation. Rust's exact read budget leaves the decoded revocation unconsumed;
+C drains both replies in that dispatch. Both retain Revoked and complete status
+without Tflush. A Rust negative control that flushes immediately in cancel_watch
+fails with "tag not outstanding"; restoring the source passes. These are native
+scripted-peer checks with supplied admission, not new production-authentication
+or performance evidence. Both suites and strict Rust Clippy pass.
+
+Next integrate capture requests and frame reads into the shared scheduler.
+Reconnect/recovery, trusted requester/broker and publication remain open.
