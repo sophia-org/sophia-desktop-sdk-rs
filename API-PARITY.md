@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 42, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 43, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:

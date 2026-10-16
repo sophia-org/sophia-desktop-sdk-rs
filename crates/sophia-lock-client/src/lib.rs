@@ -6,3 +6,6 @@ pub use candidate::{Candidate, Prepared};
 /// Provisional fixed-file startup for the experimental session.
 #[doc(hidden)]
 pub mod startup;
+/// Provisional submission lane; public admission policy belongs to Session.
+#[doc(hidden)]
+pub mod submission;
