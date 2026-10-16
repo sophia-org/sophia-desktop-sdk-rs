@@ -67,6 +67,10 @@ handoff to a role facade. Defaults preserve 64 records/2 MiB with 32 records/
 remain charged until settlement. Queue resizing is refused while records or
 delayed credits are held. Limits do not shrink retained allocation capacity.
 
+`close` ends locally without I/O while keeping custody and decoded observations
+readable. It releases delayed credits and blocks new work; the owned descriptor
+closes on Drop. The native facade also clears input and lifecycle authority.
+
 Use `custody_result(ticket)` to distinguish retained custody from
 `CustodyLookupError::Unavailable` (evicted history) and `Unissued`. The existing
 `custody` method still returns `None` for both lookup failures. Tickets must

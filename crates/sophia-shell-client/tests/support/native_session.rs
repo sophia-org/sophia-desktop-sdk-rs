@@ -205,3 +205,15 @@ fn action_hint_is_not_restarted_when_head_is_read_again() {
     s.prepare_action(2, false).unwrap().commit();
     assert_eq!(s.obligations().action_due_ms, None);
 }
+
+#[test]
+fn explicit_session_close_disarms_input_without_waiting_for_peer() {
+    let (mut s, mut p) = session(80);
+    send_input(&mut s, &mut p);
+    s.close();
+    s.close();
+    assert_eq!(s.lifecycle().state(), NativeLifecycleState::Ended);
+    assert!(s.lifecycle().input().is_none());
+    assert_eq!(s.obligations(), NativeObligations::default());
+    assert!(s.prepare_input(2, false).is_err());
+}

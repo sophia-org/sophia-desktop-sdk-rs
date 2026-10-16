@@ -18,6 +18,18 @@ use crate::wire::Inbound;
 use crate::{ShellClientError, outbox::ClientOutbox};
 
 impl FileWire {
+    pub(crate) fn close(&mut self, output: &mut ClientOutbox, ledger: &mut Ledger) {
+        if self.fatal.is_some() {
+            return;
+        }
+        self.observe_custody_after_close();
+        self.peer_closed = true;
+        self.fatal = Some(ShellClientError::PeerClosed);
+        self.service_pending = false;
+        output.release_reservation();
+        self.classify_terminal(output);
+        self.settle(output, ledger);
+    }
     pub(crate) fn as_fd(&self) -> BorrowedFd<'_> {
         self.pipeline.as_fd()
     }
@@ -126,7 +138,11 @@ impl FileWire {
     /// The instant a pending `EAGAIN` retry becomes due without event
     /// progress; the caller should service the connection by then.
     pub(crate) fn wake_deadline(&self) -> Option<std::time::Instant> {
-        self.retry_deadline()
+        if self.fatal.is_some() || self.peer_closed {
+            None
+        } else {
+            self.retry_deadline()
+        }
     }
 
     pub(crate) fn wait_for_io(&self, maximum: std::time::Duration) -> Result<(), ShellClientError> {

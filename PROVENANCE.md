@@ -1,5 +1,17 @@
 # Provenance
 
+## t333 local close and shell operation audit
+
+`ShellConnection::close` settles local custody without I/O and retains decoded
+observations; the owning native facade additionally disarms lifecycle authority.
+Tests cover idempotence, held credits, unsent versus uncertain submissions,
+retained Submitted and input cleanup. Full workspace tests (43 native), strict
+Clippy and C's full suite pass. C's existing custody controls independently
+exercise explicit close. Matrix 16 records the shell operation audit, including
+Rust's automatic snapshot/journal management versus C's manual controls and
+the lack of a separate allocation-free Rust size query. Those differences need
+production-export review; this is not a full desktop parity claim.
+
 ## t333 configurable queue limits
 
 `QueueLimits` makes total records/bytes and optional control headroom explicit.

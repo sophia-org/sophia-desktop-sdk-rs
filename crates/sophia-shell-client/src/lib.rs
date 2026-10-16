@@ -336,6 +336,15 @@ impl ShellConnection {
         self.ledger.lookup(ticket)
     }
 
+    /// End locally without I/O. Retain custody and already-decoded observations
+    /// for inspection: queued units become DroppedUnsent, a possibly submitted
+    /// unit becomes Unknown, and observed Submitted remains Submitted. Repeated
+    /// close is harmless. The owned descriptor stays open until this value drops;
+    /// unregister it from readiness monitoring and do not use it directly.
+    pub fn close(&mut self) {
+        self.wire.close(&mut self.output, &mut self.ledger);
+    }
+
     /// When to call [`Self::poll_io`] again even if the socket has nothing
     /// to read or write: a write the session refused with `EAGAIN` is retried
     /// then (or sooner, once an event is consumed). `None` when nothing waits.

@@ -96,6 +96,14 @@ impl NativeLauncherSession {
     pub fn lifecycle(&self) -> &NativeLauncherLifecycle {
         &self.lifecycle
     }
+    /// End locally and disarm lifecycle authority. Custody remains readable.
+    pub fn close(&mut self) {
+        self.connection.close();
+        if self.lifecycle.state == NativeLifecycleState::Live {
+            self.lifecycle.end(NativeLifecycleState::Ended);
+        }
+        self.head = None;
+    }
     pub fn custody(&self, ticket: Ticket) -> Result<Custody, CustodyLookupError> {
         self.connection.custody_result(ticket)
     }

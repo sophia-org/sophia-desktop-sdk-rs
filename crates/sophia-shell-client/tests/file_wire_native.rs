@@ -582,3 +582,51 @@ fn native_catalog_is_fetched_before_later_events() {
         matches!(&seen[2], NativeLauncherObservation::Record(v) if v.record == ShellNativeLauncherRecord::Focus(binding()))
     );
 }
+
+#[test]
+fn local_close_preserves_custody_without_io_or_replay() {
+    for submit_sent in [false, true] {
+        let (mut c, mut p) = ready();
+        let record = record(ShellNativeLauncherRecord::InputAck(ack()));
+        let first = c.enqueue_native_launcher_tracked(&record).unwrap();
+        let second = c.enqueue_native_launcher_tracked(&record).unwrap();
+        let reservation = c.reserve_capacity(1, 1024).unwrap();
+        if submit_sent {
+            drive(&mut c, &mut p, |_, p| !p.submits.is_empty()).unwrap();
+        }
+        let requests = p.transactions.len();
+        c.close();
+        c.close();
+        assert_eq!(
+            c.custody(first.first),
+            Some(if submit_sent {
+                Custody::Unknown
+            } else {
+                Custody::DroppedUnsent
+            })
+        );
+        assert_eq!(c.custody(second.first), Some(Custody::DroppedUnsent));
+        assert!(c.cancel_reservation(&reservation).is_err());
+        assert!(c.enqueue_native_launcher_tracked(&record).is_err());
+        assert!(c.poll_io().is_err());
+        assert!(c.io_interest().is_err());
+        assert!(c.wake_deadline().is_none());
+        assert_eq!(p.transactions.len(), requests);
+        // Initial decoded Limits remain available despite local close.
+        assert!(c.take_native_launcher_observation().unwrap().is_some());
+        assert!(matches!(
+            c.take_native_launcher_observation(),
+            Err(ShellClientError::PeerClosed)
+        ));
+    }
+}
+
+#[test]
+fn local_close_keeps_observed_submitted() {
+    let (mut c, mut p) = ready();
+    let record = record(ShellNativeLauncherRecord::InputAck(ack()));
+    let a = c.enqueue_native_launcher_tracked(&record).unwrap();
+    commit(&mut c, &mut p, a.first);
+    c.close();
+    assert_eq!(c.custody(a.first), Some(Custody::Submitted));
+}

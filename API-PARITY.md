@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 15, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 16, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -346,3 +346,35 @@ boundary. Rust controls cover byte/record headroom, delayed credits, invalid
 limits and attempted resize while the wire owns bytes. Full Rust workspace
 tests, strict Clippy and C `make check` pass. Production export checks remain
 pending under t333.
+
+## Shell session operation audit
+
+| C operation | Rust counterpart | Ownership or control difference |
+| --- | --- | --- |
+| `sophia_ss_init[_buffer]`, `init_attached[_buffer]` | `connect_files`, `from_attached` | C borrows fd/storage; Rust owns the pipeline. C transaction-buffer sizing is caller storage; Rust uses owned bounded record buffers. |
+| `state`, `limits`, `refusal` | construction result/`welcome`, Limits observation, typed errors | Rust returns admission refusal during connection rather than retaining a half-initialized session for querying. |
+| `poll_events`, `dispatch` | `AsFd`, `io_interest`, `dispatch` | Whole-call budgets and monotonic-time rules above. |
+| `record_bytes`, `submit` | protocol encoders, `enqueue_shell_batch` | Rust has no separate allocation-free encoded-size query; prepared admission can validate and reserve before effects. |
+| `reserve`, `commit`, `cancel` | capacity tokens and `commit_reserved_shell_batch` | Same all-or-none admission; Rust prepared handles additionally borrow exclusively and cancel on Drop. |
+| `outcome` | `custody_result` | Retained unknown versus evicted/unissued distinctions above. |
+| `event`, `consume` | typed `take_*`; native `next_event`/`done` | Rust generic receives transfer owned values; native facade retains its head until done/response. Decoded observations remain readable after connection close. |
+| `object`, `object_result` | automatic fetch and typed snapshot observations | Rust owns fetch/retry and validates announced identity before releasing journal holds; no public manual fetch scheduling. |
+| `ack_limit`, `ack`, generic `obligations` | automatic ordered journal acknowledgement, readiness and retry wake deadline | Rust does not expose a manual acknowledgement watermark. Journal delivery ACK is separate from explicit application input/action ACK. |
+| `upload_begin/chunk/ready/pending/end/cancel` | resource records and Stored tickets; native upload helpers | C borrows chunks; Rust copies them and exposes custody. In-flight/queue accounting above. |
+| `close` | `ShellConnection::close`, `NativeLauncherSession::close` | Local terminal classification without I/O. C leaves borrowed fd open; Rust keeps its owned fd until Drop. |
+
+Local close preserves observed Submitted, classifies an issued uncertain submit
+as Unknown and unsent tails as DroppedUnsent, releases delayed credits, blocks
+new work and removes retry deadlines. Rust close is idempotent and retains
+already-decoded observations. The native facade also disarms retained input and
+lifecycle authority. Three Rust controls and C's existing staged/issued/retained
+custody controls pass, alongside full workspace tests, strict Clippy and the full
+C suite (43 Rust native tests).
+
+This audit does not declare every low-level control interchangeable. C's manual
+object-fetch and journal-ACK scheduling and allocation-free size query have no
+literal Rust control API. Rust supplies automatic verified delivery and prepared
+admission instead; production-export review must assess those differences
+against supported applications. The matrix records them explicitly rather than
+claiming codec coverage proves full parity. WM, output, lock, administration,
+broker/portal scope and release/export gates remain under t333.
