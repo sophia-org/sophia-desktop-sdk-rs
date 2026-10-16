@@ -1,6 +1,6 @@
 # Portal SDK parity
 
-Revision 6, 2026-10-16. Recipient components are developing; there is no complete
+Revision 7, 2026-10-16. Recipient components are developing; there is no complete
 portal client or parity claim.
 
 The unchanged recipient contract in `spec/portal-client-files.md` comes from
@@ -83,3 +83,19 @@ unavailable request capability and retains only the root after api clunk.
 The original launch relay remains open until peer exit. Strict Rust Clippy
 passes. This qualifies startup composition, not frame delivery, capture
 custody, revocation or physical presentation. No SDK pin adoption is implied.
+
+The frame range scheduler now keeps four requests in fixed storage. Counts
+respect msize minus reply framing, iounit and caller chunk limits. Out-of-order
+replies place bytes at their reserved offsets; short reads schedule only the
+unread suffix. Tokens belong to one window and must be matched to its wire tags.
+If admission is busy, retain the reserved request and submit it once.
+Zero-length, oversized, unknown and duplicate replies fail the window closed.
+The caller closes it on timeout, cancellation, revocation or transport failure.
+
+Independent tests cover reversed short reads with exact byte coverage, four-slot
+pressure, framing/iounit limits, terminal errors and a full 64 MiB range without
+allocating image storage. Both tests and strict Rust Clippy pass. Payload range
+completion is not image completion: the eventual session must verify EOF,
+reread the retained metadata fid to reject replacement, and clunk successfully.
+No private qid arithmetic is required. This scheduler copies no pixels; wire
+integration, frame storage ownership and production delivery remain unfinished.
