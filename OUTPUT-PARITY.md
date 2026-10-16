@@ -1,6 +1,6 @@
 # Output API parity
 
-Revision 5, 2026-10-16. Contract: API-1 output files in `spec/`.
+Revision 6, 2026-10-16. Contract: API-1 output files in `spec/`.
 C reference: `a88efe7`, `src/sophia_output_session.h`.
 Rust has codecs, provisional fixed-file startup and an immutable submission
 lane, ordered journal and topology fetcher joined by a developing session.
@@ -8,16 +8,16 @@ lane, ordered journal and topology fetcher joined by a developing session.
 | C capability | Rust status | Evidence or remaining work |
 | --- | --- | --- |
 | File record codecs | `sophia-output-protocol` | Thirty extracted tests; schema and contract match C. |
-| Direct startup | `Opening::direct` on a versioned pipeline | Seven startup tests cover fragmented files and bounds. Integrate the nonblocking version handshake in the final facade. |
-| Authenticated handoff | `Opening::attached` | Exact sole root on a quiescent owned pipeline; no reset or attach. Supplied socket tests only so far. |
+| Direct startup | `Connecting::direct` | Nonblocking version, files and negotiation share one absolute deadline and caller budget. |
+| Authenticated handoff | `Connecting::attached` | Exact sole root on a quiescent owned pipeline; no reset or attach. Full supplied socket proposal/retry tests; protected production gate remains. |
 | API / Limits | Validated through EOF and clunk | Exact API line and 72-byte Limits object; retain epoch and resource bounds. |
 | Role files | Opens events, submit and ACK | Refuses non-file Qids and control iounits smaller than 24/16 bytes. |
 | Observe prerequisite | Required before opening | Unsupported revision requests survive startup for server negotiation/refusal. |
 | Startup progress | Caller clock, deadline, interests and byte budget | Expiry sends nothing; clock regression is nonmutating. Constructors queue requests without socket I/O. |
 | Negotiation and Refused state | Provisional journal | Checks grant subset and revision; Refused supplies an internal ACK target. Driver must settle its ACK before terminal handoff. |
-| Proposal admission and custody | Provisional `Submission` | Configure/epoch checks, immutable bytes, 64-ticket history, same-ID retry, domain allocation and advertised assembly deadline. Nine driver tests; session integration remains. |
-| Ordered events and ACKs | Provisional journal | Internal controls, retained heads, bounded fragments and advertised fragment deadline. Socket ACK scheduling remains. |
-| Authoritative topology | Provisional `Fetch` | Checks published Qid on walk/open, connection and topology epochs, bounded reads, EOF and clunk. Session/journal integration remains. |
+| Proposal admission and custody | Provisional `Submission` | Configure/epoch checks, immutable bytes, 64-ticket history, same-ID retry, domain allocation and advertised assembly deadline. Nine driver tests plus socket proposals/retries through both startup paths. |
+| Ordered events and ACKs | Provisional journal | Internal controls, retained heads, bounded fragments and advertised fragment deadline. Integrated cumulative ACK scheduling; terminal socket coverage remains. |
+| Authoritative topology | Provisional `Fetch` | Checks published Qid on walk/open, connection and topology epochs, bounded reads, EOF and clunk. Socket test verifies delivery/ACK after EOF and clunk. |
 | Close, revocation and recovery | Startup close and submission disconnect | Submission retains confirmed custody and distinguishes uncertain from unsent work. Session revocation/recovery tests remain. |
 | Production export / protected launch | Missing | Paired independent clients must pass before pin adoption. |
 
@@ -48,7 +48,7 @@ and topology epoch. These journal tests use a callback; they are not
 proof of a full object read. C independently checks all six outcomes through
 both constructors, preserving held heads and ACK order. Its existing fragmented
 topology test remains the fetch counterpart. C’s full suite and Rust’s 23
-output-client tests and strict Clippy pass. Session integration remains open.
+output-client tests and strict Clippy pass. These are component tests; integrated evidence follows below.
 
 The provisional topology fetcher has five matched-reply tests: fragmented
 reads, exact identity, EOF/clunk visibility, withheld walk/open retries, fixed
@@ -68,6 +68,16 @@ without a deep copy. This avoids copying its vectors and labels; native CPU
 savings are unmeasured. C already stores its decoded topology in session-owned
 fixed storage and needs no matching ownership change. Its existing bootstrap
 and refusal tests are the independent counterparts. Rust’s 31 output-client
-tests and strict Clippy pass. Proposal socket tests, attached-session cases,
-terminal/recovery coverage, connecting facade and production gates remain.
+tests and strict Clippy pass. Terminal/recovery and production gates remain; proposal and connecting
+coverage follows below.
 Earlier component-only limits above describe those individual tests.
+
+The nonblocking `Connecting` facade now covers direct and admitted-root startup,
+with three tests for shared deadlines, errno retention and Observe validation.
+The integrated proposal test runs both paths, with and without EAGAIN, and
+checks unchanged candidate/control bytes, caller mutation, domain IDs 50 then 3,
+allocator 51, and transaction clunk/Submitted ACK barriers. Retry cases use the
+Connecting facade through one-time Session transfer. No extra clock or readiness
+syscall was added. All 35 output-client tests and strict Clippy pass; C’s full
+suite passes with its existing independent retry/domain/startup controls.
+Terminal socket faults and paired production exports remain required.

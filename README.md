@@ -30,6 +30,14 @@ golden corpus match the C SDK's pinned contract. Encoding a valid record does
 not establish custody or a committed scene; those require the pending session
 client's remaining operations and production-export qualification.
 
+The developing output client also exposes `Connecting::direct` and `attached`.
+Drive startup with caller-monotonic milliseconds and a byte budget, then transfer
+the ready session once with `take_session`. Consume retained events explicitly;
+topology publications are exposed only after their exact object reaches EOF and
+clunk. `topology` borrows the verified snapshot without a deep-copy handoff.
+Proposal admission returns custody tickets, not proof of committed topology.
+See [output parity](OUTPUT-PARITY.md) for remaining qualification gates.
+
 Start the developing WM client with `Connecting::direct` for a supplied-admission
 socket or `Connecting::attached` for an authenticated pipeline/root. Drive
 `dispatch` until `ready`, then call `take_session`. Version, file opening and

@@ -89,6 +89,9 @@ fn rr(tag: u16, data: &[u8]) -> Vec<u8> {
     frame(117, tag, &b)
 }
 fn fixture(refuse: bool) -> (Session, thread::JoinHandle<u64>) {
+    fixture_mode(refuse, false, false)
+}
+fn fixture_mode(refuse: bool, attached: bool, retry: bool) -> (Session, thread::JoinHandle<u64>) {
     let (client, mut peer) = UnixStream::pair().unwrap();
     peer.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
     let handle = thread::spawn(move || {
@@ -98,6 +101,11 @@ fn fixture(refuse: bool) -> (Session, thread::JoinHandle<u64>) {
         let mut candidate: Vec<u8> = vec![];
         let mut acked = 0;
         let mut topology_clunked = false;
+        let mut attaches = 0;
+        let mut versions = 0;
+        let mut proposal_attempts = 0;
+        let mut retry_bytes = None;
+        let mut next_sequence = 4;
         loop {
             let mut h = [0; 7];
             match peer.read_exact(&mut h) {
@@ -110,8 +118,14 @@ fn fixture(refuse: bool) -> (Session, thread::JoinHandle<u64>) {
             let tag = u16::from_le_bytes(h[5..].try_into().unwrap());
             let fid = u32::from_le_bytes(b[..4].try_into().unwrap());
             match h[4] {
-                100 => peer.write_all(&frame(101, tag, &b)).unwrap(),
+                100 => {
+                    versions += 1;
+                    assert_eq!(versions, 1);
+                    peer.write_all(&frame(101, tag, &b)).unwrap();
+                }
                 104 => {
+                    attaches += 1;
+                    assert_eq!(attaches, 1);
                     files.insert(fid, "root".into());
                     peer.write_all(&frame(105, tag, &qid(true))).unwrap();
                 }
@@ -119,6 +133,13 @@ fn fixture(refuse: bool) -> (Session, thread::JoinHandle<u64>) {
                     let newfid = u32::from_le_bytes(b[4..8].try_into().unwrap());
                     let name = String::from_utf8(b[12..].to_vec()).unwrap();
                     if name == "transaction" {
+                        assert!(
+                            !files.values().any(|name| name == "transaction"),
+                            "previous transaction must be clunked"
+                        );
+                        if next_sequence > 4 {
+                            assert!(acked >= next_sequence - 2, "Submitted ACK barrier");
+                        }
                         candidate.clear();
                     }
                     files.insert(newfid, name);
@@ -159,21 +180,46 @@ fn fixture(refuse: bool) -> (Session, thread::JoinHandle<u64>) {
                         }
                         "submit" => {
                             assert_eq!(&candidate[16..24], &data[8..16]);
-                            let mut body = 1u64.to_le_bytes().to_vec();
-                            body.extend(256u16.to_le_bytes());
-                            body.extend([0; 6]);
-                            queued.extend(event(18, 1, &body));
-                            if refuse {
-                                queued.extend(event(17, 2, &[1, 0, 0, 0, 0, 0, 0, 0]));
-                            } else {
-                                let mut body = vec![1, 0, 0, 0, 0, 0, 0, 0];
-                                body.extend(1u64.to_le_bytes());
-                                body.extend([16, 0, 16, 0, 128, 0, 4, 0]);
-                                queued.extend(event(16, 2, &body));
-                                let mut body = vec![2, 0, 0, 0, 0, 0, 0, 0];
+                            let kind = u16::from_le_bytes(candidate[6..8].try_into().unwrap());
+                            if kind == 257 {
+                                proposal_attempts += 1;
+                                assert_eq!(candidate[96..100], (-2i32).to_le_bytes());
+                                if retry && proposal_attempts == 1 {
+                                    retry_bytes = Some((candidate.clone(), data.to_vec()));
+                                    peer.write_all(&frame(7, tag, &11u32.to_le_bytes()))
+                                        .unwrap();
+                                    continue;
+                                }
+                                if let Some((bytes, control)) = retry_bytes.take() {
+                                    assert_eq!(candidate, bytes);
+                                    assert_eq!(data, control);
+                                }
+                                let mut body = data[8..16].to_vec();
+                                body.extend(257u16.to_le_bytes());
+                                body.extend([0; 6]);
+                                queued.extend(event(18, next_sequence, &body));
+                                let mut body = candidate[32..40].to_vec();
                                 body.extend(7u64.to_le_bytes());
-                                body.extend(55u64.to_le_bytes());
-                                queued.extend(event(19, 3, &body));
+                                body.extend([2, 0, 0, 0, 0, 0, 0, 0]);
+                                queued.extend(event(32, next_sequence + 1, &body));
+                                next_sequence += 2;
+                            } else {
+                                let mut body = 1u64.to_le_bytes().to_vec();
+                                body.extend(256u16.to_le_bytes());
+                                body.extend([0; 6]);
+                                queued.extend(event(18, 1, &body));
+                                if refuse {
+                                    queued.extend(event(17, 2, &[1, 0, 0, 0, 0, 0, 0, 0]));
+                                } else {
+                                    let mut body = vec![1, 0, 0, 0, 0, 0, 0, 0];
+                                    body.extend(3u64.to_le_bytes());
+                                    body.extend([16, 0, 16, 0, 128, 0, 4, 0]);
+                                    queued.extend(event(16, 2, &body));
+                                    let mut body = vec![2, 0, 0, 0, 0, 0, 0, 0];
+                                    body.extend(7u64.to_le_bytes());
+                                    body.extend(55u64.to_le_bytes());
+                                    queued.extend(event(19, 3, &body));
+                                }
                             }
                         }
                         _ => panic!(),
@@ -203,13 +249,46 @@ fn fixture(refuse: bool) -> (Session, thread::JoinHandle<u64>) {
         }
         acked
     });
-    let wire = Pipeline::over(client, PipelineLimits::default(), Duration::from_secs(2)).unwrap();
     let offer = OutputV1ClientHello {
         minimum_revision: if refuse { 2 } else { 1 },
         maximum_revision: if refuse { 2 } else { 1 },
-        capabilities: 1,
+        capabilities: 3,
     };
-    let mut opening = Opening::direct(wire, offer, 0, 2000).unwrap();
+    if retry {
+        use sophia_output_client::Connecting;
+        let mut connecting = if attached {
+            let mut wire =
+                Pipeline::over(client, PipelineLimits::default(), Duration::from_secs(2)).unwrap();
+            let (tag, root) = wire.attach(b"output", b"output-authority").unwrap();
+            wire.wait(tag, Instant::now() + Duration::from_secs(2))
+                .unwrap();
+            Connecting::attached(wire, root, offer, 0, 2000).unwrap()
+        } else {
+            Connecting::direct(client, PipelineLimits::default(), offer, 0, 2000).unwrap()
+        };
+        let end = Instant::now() + Duration::from_secs(2);
+        while !connecting.ready() {
+            assert!(Instant::now() < end);
+            connecting.dispatch(1, 4096).unwrap();
+            thread::yield_now();
+        }
+        let session = connecting.take_session().unwrap();
+        assert!(connecting.take_session().is_none());
+        return (session, handle);
+    }
+    let mut wire =
+        Pipeline::over(client, PipelineLimits::default(), Duration::from_secs(2)).unwrap();
+    let mut opening = if attached {
+        let (tag, root) = wire.attach(b"output", b"output-authority").unwrap();
+        assert!(matches!(
+            wire.wait(tag, Instant::now() + Duration::from_secs(2))
+                .unwrap(),
+            sophia_9p_client::pipeline::Reply::Attach(_)
+        ));
+        Opening::attached(wire, root, offer, 0, 2000).unwrap()
+    } else {
+        Opening::direct(wire, offer, 0, 2000).unwrap()
+    };
     let end = Instant::now() + Duration::from_secs(2);
     while !opening.is_opened() {
         assert!(Instant::now() < end);
@@ -273,4 +352,87 @@ fn zero_budget_and_expiry_do_not_send_queued_negotiation() {
     assert_eq!(s.custody(1), Some(Custody::DroppedUnsent));
     assert!(s.fd().is_none());
     assert_eq!(peer.join().unwrap(), 0);
+}
+
+fn proposal() -> OutputV1Proposal {
+    OutputV1Proposal {
+        connection_epoch: 7,
+        candidate: OutputTopologyCandidate {
+            base_topology_epoch: 7,
+            intent: OutputTopologyIntent::Apply,
+            primary_group_index: 0,
+            heads: vec![OutputHeadTargetProposal {
+                head: DisplayHeadId::from_raw(3),
+                head_generation: 4,
+                mode: DisplayModeId::from_raw(5),
+                transform: OutputTransform::Normal,
+                vrr: OutputVrrPolicy::Automatic,
+            }],
+            groups: vec![OutputLogicalGroupProposal {
+                output: OutputId::INVALID,
+                logical: Rect {
+                    x: -2,
+                    y: 0,
+                    width: 800,
+                    height: 600,
+                },
+                members: vec![OutputGroupMember {
+                    head: DisplayHeadId::from_raw(3),
+                    mapping: OutputHeadMapping::Exact,
+                }],
+            }],
+        },
+    }
+}
+
+#[test]
+fn proposals_retry_exact_bytes_and_keep_custody_on_both_startup_paths() {
+    for attached in [false, true] {
+        for retry in [false, true] {
+            let (mut s, peer) = fixture_mode(false, attached, retry);
+            let end = Instant::now() + Duration::from_secs(2);
+            let mut now = 2;
+            while s.event().is_none() {
+                assert!(Instant::now() < end);
+                s.dispatch(now, 4096).unwrap();
+                thread::yield_now();
+            }
+            s.consume().unwrap();
+            while s.acked() < 3 || s.obligations().deadline.is_some() {
+                assert!(Instant::now() < end);
+                s.dispatch(now, 4096).unwrap();
+                thread::yield_now();
+            }
+            for (domain, sequence) in [(50, 5), (3, 7)] {
+                let mut value = proposal();
+                let ticket = s
+                    .submit(TransactionId::from_raw(domain), &value, 1900)
+                    .unwrap();
+                value.candidate.groups[0].logical.x = 42;
+                while s.event().is_none() {
+                    assert!(Instant::now() < end);
+                    now += 1;
+                    s.dispatch(now, 4096).unwrap();
+                    thread::yield_now();
+                }
+                assert_eq!(s.custody(ticket), Some(Custody::Submitted));
+                let (header, sophia_output_client::journal::Event::Outcome(tx, _)) =
+                    s.event().unwrap()
+                else {
+                    panic!()
+                };
+                assert_eq!(header.sequence, sequence);
+                assert_eq!(tx.raw(), domain);
+                s.consume().unwrap();
+                while s.acked() < sequence || s.obligations().deadline.is_some() {
+                    assert!(Instant::now() < end);
+                    s.dispatch(now, 4096).unwrap();
+                    thread::yield_now();
+                }
+            }
+            assert_eq!(s.next_transaction().unwrap(), 51);
+            s.close();
+            assert_eq!(peer.join().unwrap(), 7);
+        }
+    }
 }
