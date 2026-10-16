@@ -1,6 +1,7 @@
-//! Developing administrative session on a versioned pipeline. Raw-socket
-//! connection and production qualification remain incomplete.
+//! Developing administrative session with caller-connected socket startup.
+//! Production qualification remains incomplete.
 pub mod command;
+pub mod connecting;
 pub mod session;
 pub mod snapshot;
 pub mod startup;

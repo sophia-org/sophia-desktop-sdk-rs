@@ -1,7 +1,7 @@
 # Administrative SDK parity
 
-Revision 8, 2026-10-16. Both SDKs now have developing administrative sessions
-on startup handoffs. Raw-socket facades and qualification remain t333 work.
+Revision 9, 2026-10-16. Both SDKs now have developing administrative sessions
+and caller-connected socket facades. Qualification remains t333 work.
 
 The pinned file contract is copied unchanged from Sophia
 `baedfd0c9`, `docs/sophia-admin-files.md`; SHA-256 is
@@ -150,3 +150,13 @@ explicit write refusal, loss after write and mismatched outcome generation.
 Both retain confirmed outcomes on close. These are scripted peers, not production
 export evidence. Raw-socket/version facades, further integrated failure cases,
 ownership/recovery guidance and paired production qualification remain.
+
+Both now provide nonblocking caller-connected socket startup through version,
+file opening and catalog completion. One absolute deadline spans all phases;
+one phase spends I/O budget per dispatch. A ready session transfers once.
+The complete scripted exchange now uses these facades. Paired stalled-version
+tests cover zero/one-byte budgets, clock regression and expiry with no extra
+bytes; unsupported versions terminate without attach or fallback. Twelve Rust
+client tests and C's session/connecting tests pass, with strict Rust Clippy.
+[Ownership and recovery](ADMIN-CLIENT.md) documents both APIs and their limits.
+Further integrated failure cases and paired production qualification remain.

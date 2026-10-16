@@ -1,9 +1,9 @@
-use sophia_9p_client::pipeline::{Pipeline, PipelineLimits};
+use sophia_9p_client::pipeline::PipelineLimits;
 use sophia_admin_client::{
     command::Custody,
+    connecting::Connecting,
     protocol::{Command, Outcome, Owner},
     session::{Error, Session},
-    startup::Opening,
 };
 use std::{
     collections::HashMap,
@@ -144,20 +144,19 @@ fn fixture(fault: u8) -> (Session, thread::JoinHandle<(usize, usize)>, Instant) 
         (writes, catalogs)
     });
     let start = Instant::now();
-    let wire = Pipeline::over(client, PipelineLimits::default(), Duration::from_secs(2)).unwrap();
-    let mut opening = Opening::new(wire, 0, 2000).unwrap();
-    while !opening.is_opened() {
+    let mut opening = Connecting::new(client, PipelineLimits::default(), 0, 2000).unwrap();
+    while !opening.ready() {
         assert!(start.elapsed() < Duration::from_secs(2));
         opening
             .dispatch(start.elapsed().as_millis() as u64, 512)
             .unwrap();
         thread::yield_now();
     }
-    (
-        Session::from_opened(opening.into_opened().unwrap()).unwrap(),
-        job,
-        start,
-    )
+    assert!(opening.io_interest().unwrap().immediate);
+    assert_eq!(opening.next_wake(), None);
+    let session = opening.take_session().unwrap();
+    assert!(opening.take_session().is_none());
+    (session, job, start)
 }
 fn run(s: &mut Session, start: Instant, done: impl Fn(&Session) -> bool) {
     while !done(s) {

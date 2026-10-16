@@ -586,3 +586,7 @@ integration and production gates remain.
 Admin map 8 adds integrated same-connection sessions, retained catalogs,
 monotonic command IDs, pending-only status snapshots and terminal custody.
 Paired scripted socket exchanges pass; production qualification remains.
+
+Admin map 9 adds nonblocking caller-connected socket facades and shared
+ownership/recovery guidance. Startup deadlines and I/O budgets span phase
+transitions. Production and release qualification remain open.
