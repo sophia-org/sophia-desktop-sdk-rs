@@ -28,7 +28,15 @@ golden corpus match the C SDK's pinned contract. Encoding a valid record does
 not establish custody or a committed scene; those require the pending session
 client's remaining operations and production-export qualification.
 
-The developing WM `Session` takes the pipeline and fids returned by `Opening`.
+Start the developing WM client with `Connecting::direct` for a supplied-admission
+socket or `Connecting::attached` for an authenticated pipeline/root. Drive
+`dispatch` until `ready`, then call `take_session`. Version, file opening and
+role negotiation share the original absolute deadline; constructors perform
+no socket I/O. Direct startup is never an authentication fallback.
+WM requires at least eight request slots, sixteen fids, msize at most 64 KiB,
+and input capacity of twice the negotiated msize plus 64 bytes for concurrent
+event/snapshot reads and scalar replies. Handoff requires no unfinished traffic
+and the exact sole root. Default pipeline bounds satisfy these requirements.
 Drive it with monotonic milliseconds and a byte budget; inspect socket interests
 and the wake deadline before sleeping. `event` retains one application head
 until `consume`. `submit` returns a local custody ticket; `custody` distinguishes
@@ -182,6 +190,11 @@ explicitly. A lock provider only renders: the contract carries no secret and no
 unlock.
 `spec/SHA256SUMS` holds every digest; Sophia's gate refuses a vendored SDK
 whose copies differ from its own.
+
+Generic callers can use `pipeline::VersionHandshake` for nonblocking version
+negotiation with caller time and a shared `IoBudget`. `take_pipeline` transfers
+ownership once without repeating Tversion. Existing blocking constructors remain
+available. `limits`, `is_quiescent` and `owns_fid` support role handoff checks.
 
 The dialect is plain 9P2000.L; wire error numbers are the Linux values
 9P2000.L defines, whatever the host (see `PLATFORMS.md`).

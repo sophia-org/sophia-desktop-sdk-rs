@@ -104,14 +104,19 @@ impl Opening {
         if deadline <= now || offer.required_capabilities & offer.optional_capabilities != 0 {
             return Err(Error::Protocol("invalid deadline or overlapping offer"));
         }
-        if wire.is_poisoned()
-            || wire.outstanding() != 0
-            || wire.fid_count() != usize::from(root.is_some())
-        {
+        if !wire.is_quiescent() || wire.fid_count() != usize::from(root.is_some()) {
             return Err(Error::Protocol("startup requires a quiescent pipeline"));
         }
-        if root == Some(Fid::NOFID) {
+        if root.is_some_and(|fid| fid == Fid::NOFID || !wire.owns_fid(fid)) {
             return Err(Error::Protocol("invalid root"));
+        }
+        let bounds = wire.limits();
+        if wire.msize() > 65536
+            || bounds.max_outstanding < 8
+            || bounds.max_fids < 16
+            || bounds.max_buffered_input < 2 * wire.msize() as usize + 64
+        {
+            return Err(Error::Protocol("insufficient WM pipeline capacity"));
         }
         let mut value = Self {
             wire: Some(wire),

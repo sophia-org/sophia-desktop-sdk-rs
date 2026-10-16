@@ -1,6 +1,6 @@
 # C and Rust SDK API parity
 
-Matrix revision 23, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 24, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
@@ -471,3 +471,17 @@ fragmented reads, Cycle consumption, pre-open retry, identity/length/EOF
 mismatches, read/clunk refusal and expiry. All 35 WM client tests and strict
 Clippy pass. Direct nonblocking version startup, handoff capacity checks and
 paired export qualification remain; no production pin or C implementation changed.
+
+Rust now supplies nonblocking `VersionHandshake` and WM `Connecting::direct` /
+`attached`. Constructors perform no socket I/O; version, fixed-file startup
+and role negotiation retain one caller deadline. Handoff verifies quiescence,
+the exact sole root, eight request slots, sixteen fids, msize at most 64 KiB,
+and input capacity of two negotiated messages plus 64 bytes for parallel reads
+and scalar replies. C already exposes nonblocking version/session startup and
+checks its caller-storage capacity; its storage model needs no matching layout.
+Six generic handshake tests cover fragmented replies, errors, expiry and
+unconsumed following bytes. WM socket tests now use the nonblocking entrypoint;
+four added controls cover capacity, root ownership, deadline continuity and
+invalid offers. The workspace suite, added tests and strict Clippy pass.
+These close the startup gaps above. Complete WM operation/error coverage and
+paired production-export qualification still gate release and pin adoption.

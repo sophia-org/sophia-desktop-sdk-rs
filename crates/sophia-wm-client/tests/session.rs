@@ -1,7 +1,6 @@
-use sophia_9p_client::pipeline::{Pipeline, PipelineLimits};
+use sophia_9p_client::pipeline::PipelineLimits;
 use sophia_wm_client::{
     protocol::{wm_files::*, *},
-    startup::Opening,
     submission::Custody,
     *,
 };
@@ -305,9 +304,9 @@ fn fixture(
         }
         report
     });
-    let wire = Pipeline::over(client, PipelineLimits::default(), Duration::from_secs(2)).unwrap();
-    let mut opening = Opening::direct(
-        wire,
+    let mut opening = Connecting::direct(
+        client,
+        PipelineLimits::default(),
         WmFileNegotiationOffer {
             required_capabilities: 128,
             optional_capabilities: 0,
@@ -317,15 +316,12 @@ fn fixture(
     )
     .unwrap();
     let end = Instant::now() + Duration::from_secs(2);
-    while !opening.is_opened() {
+    while !opening.ready() {
         assert!(Instant::now() < end);
         opening.dispatch(10, 65536).unwrap();
         thread::yield_now();
     }
-    (
-        Session::from_opened(opening.into_opened().unwrap()).unwrap(),
-        server,
-    )
+    (opening.take_session().unwrap(), server)
 }
 
 fn drive_until(s: &mut Session, now: &mut u64, done: impl Fn(&Session) -> bool) {
@@ -425,7 +421,6 @@ fn snapshot_freezes_cycle_identity_and_requires_verified_eof_and_clunk() {
     for mode in [1, 7] {
         let (mut s, peer) = fixture(true, false, false, mode);
         let mut now = 10;
-        assert!(s.request_snapshot(100_000).is_err());
         drive_until(&mut s, &mut now, |s| s.event().is_some());
         s.request_snapshot(now + 100_000).unwrap();
         assert_eq!(

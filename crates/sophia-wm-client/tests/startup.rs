@@ -52,6 +52,12 @@ fn limits() -> Vec<u8> {
     b
 }
 fn fixture(fault: Fault) -> (Pipeline, thread::JoinHandle<Vec<String>>) {
+    fixture_limits(fault, PipelineLimits::default())
+}
+fn fixture_limits(
+    fault: Fault,
+    bounds: PipelineLimits,
+) -> (Pipeline, thread::JoinHandle<Vec<String>>) {
     let (client, mut server) = UnixStream::pair().unwrap();
     server
         .set_read_timeout(Some(Duration::from_secs(3)))
@@ -140,7 +146,7 @@ fn fixture(fault: Fault) -> (Pipeline, thread::JoinHandle<Vec<String>>) {
         }
         names
     });
-    let wire = Pipeline::over(client, PipelineLimits::default(), Duration::from_secs(2)).unwrap();
+    let wire = Pipeline::over(client, bounds, Duration::from_secs(2)).unwrap();
     (wire, peer)
 }
 fn offer() -> WmFileNegotiationOffer {
@@ -232,4 +238,55 @@ fn required_capabilities_outside_ceiling_fail_before_candidate_lane() {
     let mut opening = Opening::direct(wire, offer, 10, 1000).unwrap();
     assert!(matches!(drive(&mut opening), Err(Error::Protocol(_))));
     assert_eq!(peer.join().unwrap(), ["api", "limits"]);
+}
+
+#[test]
+fn undersized_pipelines_are_refused_before_opening_files() {
+    let default = PipelineLimits::default();
+    for bounds in [
+        PipelineLimits {
+            max_outstanding: 7,
+            ..default
+        },
+        PipelineLimits {
+            max_fids: 15,
+            ..default
+        },
+        PipelineLimits {
+            max_buffered_input: 65536,
+            ..default
+        },
+        PipelineLimits {
+            msize: 131072,
+            ..default
+        },
+    ] {
+        let (wire, peer) = fixture_limits(Fault::None, bounds);
+        assert!(matches!(
+            Opening::direct(wire, offer(), 10, 1000),
+            Err(Error::Protocol(_))
+        ));
+        assert!(peer.join().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn attached_startup_rejects_wrong_root_and_unsettled_requests() {
+    let (mut wire, peer) = fixture(Fault::None);
+    let (tag, root) = wire.attach(b"wm", b"spatial-policy").unwrap();
+    wire.wait(tag, Instant::now() + Duration::from_secs(2))
+        .unwrap();
+    assert!(wire.owns_fid(root));
+    assert!(matches!(
+        Opening::attached(wire, sophia_9p_records::Fid(999), offer(), 10, 1000),
+        Err(Error::Protocol(_))
+    ));
+    assert!(peer.join().unwrap().is_empty());
+    let (mut wire, peer) = fixture(Fault::None);
+    let (_, root) = wire.attach(b"wm", b"spatial-policy").unwrap();
+    assert!(matches!(
+        Opening::attached(wire, root, offer(), 10, 1000),
+        Err(Error::Protocol(_))
+    ));
+    assert!(peer.join().unwrap().is_empty());
 }

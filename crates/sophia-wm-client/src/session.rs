@@ -19,6 +19,7 @@ pub enum SessionState {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SessionError {
+    Startup(crate::startup::Error),
     Wire(PipelineError),
     Journal(crate::journal::Error),
     Submission(crate::submission::Error),
@@ -28,6 +29,11 @@ pub enum SessionError {
     Closed,
     NotReady,
     SnapshotBusy,
+}
+impl From<crate::startup::Error> for SessionError {
+    fn from(e: crate::startup::Error) -> Self {
+        Self::Startup(e)
+    }
 }
 impl From<PipelineError> for SessionError {
     fn from(e: PipelineError) -> Self {

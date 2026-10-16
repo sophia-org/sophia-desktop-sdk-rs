@@ -61,6 +61,8 @@ use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
 use crate::client_codec::{self, HEADER};
 use crate::records::{Errno, Fid, Qid, Tag};
+mod version;
+pub use version::VersionHandshake;
 
 /// Nonblocking progress reads and writes at most this many bytes...
 const IO_BYTE_BUDGET: usize = 256 * 1024;
@@ -367,7 +369,11 @@ impl Pipeline {
         stream.set_read_timeout(None).map_err(io_err)?;
         stream.set_write_timeout(None).map_err(io_err)?;
         stream.set_nonblocking(true).map_err(io_err)?;
-        Ok(Self {
+        Ok(Self::negotiated(stream, limits, msize))
+    }
+
+    fn negotiated(stream: UnixStream, limits: PipelineLimits, msize: u32) -> Self {
+        Self {
             stream,
             limits,
             msize,
@@ -385,7 +391,22 @@ impl Pipeline {
             scrub_output: false,
             in_buf: Vec::new(),
             poisoned: false,
-        })
+        }
+    }
+
+    /// Configured bounds, before role-specific minimum checks.
+    pub const fn limits(&self) -> PipelineLimits {
+        self.limits
+    }
+    /// No pending requests, replies, buffered output or partial input.
+    pub fn is_quiescent(&self) -> bool {
+        !self.poisoned
+            && self.reserved_tags == 0
+            && self.in_buf.is_empty()
+            && self.output_pending() == 0
+    }
+    pub fn owns_fid(&self, fid: Fid) -> bool {
+        self.fids.contains(&fid.0)
     }
 
     pub const fn msize(&self) -> u32 {
