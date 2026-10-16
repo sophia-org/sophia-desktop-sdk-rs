@@ -1,6 +1,6 @@
 # WM API parity
 
-Revision 3, 2026-10-16. Contract: the pinned API-1 WM files, schema and golden
+Revision 4, 2026-10-16. Contract: the pinned API-1 WM files, schema and golden
 records in `spec/`. C reference: `fbfcdd8`, `src/sophia_wm_session.h`;
 Rust base: `622d9c0`, with the obligations and startup-wake changes in this
 series. This maps implemented capabilities, not production qualification.
@@ -39,14 +39,28 @@ policy exchange through the production adapter/worker. The independent Rust
 ignored test requires its absolute executable path in `SOPHIA_WM_RUST_SDK_PEER`;
 ordinary tests do not silently use an ambient SDK checkout. Both peers pass.
 The C run uses Sophia's pinned `ba09265`; candidate C WM sources remain unchanged.
-This fixture supplies admission and outcomes, so it proves neither protected
-launch authentication nor Engine commit/presentation.
+This exchange fixture supplies admission and outcomes, so it proves neither
+protected launch authentication nor Engine commit/presentation.
+
+The separate `policy_file_protected_authentication.rs` fixture now runs native
+C and Rust peers through the production protected supervisor, Factotum and WM
+worker. Each authenticates, transfers the exact admitted root into its WM client,
+negotiates configuration capability, settles its negotiation ACK and observes
+terminal closure/staleness after the parent revokes registration. Confirmed
+negotiation custody remains readable. The raw peer remains an independent
+control. This tests admission and idle revocation, not application candidates
+in flight, automatic recovery or physical presentation.
+
+Build C with `make build/wm_authenticated_peer`; build Rust with
+`cargo-slot sophia-desktop-sdk-rs cargo build -p sophia-wm-client --example wm_authenticated_peer`.
+In Sophia, set `SOPHIA_WM_AUTH_PEER` to either absolute binary path and run
+`cargo-slot sophia cargo test -p sophia-session --features native-session --lib external_sdk_wm_authenticates_then_negotiates_on_the_same_worker_connection -- --include-ignored --nocapture`.
 
 The [client guide](WM-CLIENT.md) describes ownership, errors and recovery.
 Scripted terminal checks are C's `ack_faults_and_revocation_keep_custody`
 and Rust's `ack_faults_and_revocation_preserve_exact_custody`; these do not
-prove the production grant owner revokes an authenticated client.
-Also finish protected admission/revocation, profile/outcome scenarios and the operation-to-export
+replace the separate protected-admission fixture above.
+Also finish profile/outcome scenarios and the operation-to-export
 evidence map. Publication, verified pins and foreign-language binding checks
 remain t333 gates. These requirements cannot be waived by marking both SDKs
 unsupported.

@@ -18,3 +18,4 @@ workspace = true
 
 [dev-dependencies]
 rustix = { workspace = true, features = ["event", "std"] }
+sophia-launch-client = { path = "../sophia-launch-client" }
