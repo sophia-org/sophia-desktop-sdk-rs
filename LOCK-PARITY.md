@@ -1,9 +1,11 @@
 # Experimental lock SDK parity
 
-Revision 6, 2026-10-16. The pinned lock file contract remains draft.
-C reference: `f7d3d45`, `src/sophia_lock_client.h` and `src/lock_files/*.c`.
-Rust `sophia-lock-client` now integrates the experimental session. Production,
-protected-launch and release qualification remain open.
+Revision 7, 2026-10-16. The pinned lock file contract remains draft.
+C reference: `86b3e89` plus the progress-query/peer change in this series;
+`src/sophia_lock_client.h` and `src/lock_files/*.c`.
+Rust `sophia-lock-client` integrates the experimental session and now has paired
+production-export and idle protected-revocation evidence. Release qualification
+and the remaining negative-case audit are open.
 
 | Capability | Rust status / remaining work |
 | --- | --- |
@@ -16,7 +18,7 @@ protected-launch and release qualification remain open.
 | Upload | Begin/admission, slot open, owned chunks, end/cancel, status/refusal and slot-error recovery. Retire remains an ordinary submission. |
 | Upload window | Both support 1–8 writes with five control slots reserved and drain before cancellation. Pipelined short writes cancel; single-write mode can continue. Socket tests verify control progress. |
 | Event loop | Rust uses caller-monotonic time and one byte/syscall budget across at most 32 rounds. FD, readiness, obligations and startup deadline are exposed. C leaves all clocks to its caller; both require explicit retry. |
-| Protected/production gates | Missing for the new Rust session; retain existing codec and raw-peer controls separately. |
+| Protected/production gates | Both candidate SDKs pass the same supplied-admission upload/pacing/presentation exchange and protected idle-revocation fixture. Raw reauthentication remains a separate control, not SDK session evidence. |
 
 Prepared Rust candidates own no heap storage and borrow no caller memory. Body
 encoding currently uses one temporary Vec; writing the fixed envelope directly
@@ -82,7 +84,8 @@ normal End, cancellation, short writes, terminal resource status, short/error/st
 ACKs, refusal ACK, uncertain disconnect and confirmed custody on close. Clock
 regression, zero budgets and startup/upload-owned candidate restrictions are
 checked. All 37 Rust lock-client tests, strict Clippy and C's lock suite pass.
-These are scripted-peer gates; production and protected-launch gates remain open.
+These are scripted-peer gates; the paired production results below have separate
+scope and do not turn every scripted fault into production evidence.
 
 Rust accepts ownership of a Vec without copying its payload; failed chunk admission
 returns that same Vec. After all issued writes settle, take_chunk returns the
@@ -93,3 +96,28 @@ Rust's wire transport may still copy write payloads; this is not an end-to-end
 zero-copy claim. Slot errors end or cancel the upload, not the connection;
 malformed replies terminate the session. New uploads remain possible after
 refusal or slot cleanup. No runtime performance gain has been measured.
+
+Sophia's `lock_client_c_sdk` test now runs pinned C, candidate C and external
+Rust peers through the same production export. All three pass: one requested
+chord, exact lock object, a two-chunk 2x2 upload, demand/permit, candidate outcome,
+Entry/Chord events and republished Unlocking state. The harness supplies admission,
+lock state, permits and presentation outcome; it does not prove Engine rendering
+or physical locking. Candidate C is compiled from an explicit source path without
+changing Sophia's pins; Rust is an independently built executable.
+
+Both candidate SDKs also pass `external_sdk_lock_authenticates_and_observes_revocation`
+under Sophia's native-session launch-authentication suite. Real Factotum,
+bubblewrap and the production lock worker authenticate one admitted root; the
+client fetches/ACKs the object, then observes grant revocation and retains its
+confirmed negotiation custody. One connection/disconnection and zero remaining
+namespace admissions are required. Lock state and the private channel class are
+supplied. This covers idle revocation, not SDK reauthentication or an upload in
+flight. The existing raw authenticate/reauthenticate/revoke control also passes.
+
+C now exposes `sophia_lc_obligations`, matching Rust's passive consumed/acked,
+event/object/upload-pending, outstanding upload writes and ACK/retry waits.
+Terminal queries retain watermarks and clear pending flags. Tests cover invalid
+arguments, explicit retry, held/drained writes, disconnect and production ACKs.
+C leaves deadline tracking to its caller. For EOF, C reports FAILED with the
+service error; Rust distinguishes Closed. Both terminate without reconnecting
+and preserve the latest custody result.

@@ -2,8 +2,9 @@
 
 The lock file contract remains draft. A provider renders the lock display; it
 does not receive secrets, check passwords or unlock the desktop. These clients
-have scripted-peer coverage. Production and protected-launch qualification are
-still required before adopting new SDK pins.
+have scripted-peer and paired production-export coverage, including protected
+idle revocation. In-flight revocation, reauthentication and release-wide
+qualification remain open before adopting new SDK pins.
 
 Rust starts with Connecting::direct for a supplied-admission socket, or
 Connecting::attached for the launch client's exact admitted root. C uses
@@ -18,6 +19,11 @@ exposes its wire readiness and bounded sophia_lc_service; timers belong to its
 caller. An EAGAIN submit waits for explicit retry in both SDKs, including during
 negotiation. Do not spin on retry or invent a timer inside the protocol client.
 Rust transfers a ready Session once through take_session.
+
+C's sophia_lc_obligations and Rust's obligations expose consumed/acked
+watermarks, pending events/objects/uploads, outstanding upload writes and
+ACK/retry waits. A consumed watermark is not proof that its ACK reached the
+server. Terminal inspection retains watermarks while clearing pending work.
 
 Ready means negotiation succeeded. The single transaction may still be busy
 recycling after its prior submission. A Busy admission changes nothing; drive

@@ -15,3 +15,7 @@ sophia-lock-protocol = { path = "../sophia-lock-protocol", version = "0.3.0" }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+rustix = { workspace = true, features = ["event", "std"] }
+sophia-launch-client = { path = "../sophia-launch-client" }
