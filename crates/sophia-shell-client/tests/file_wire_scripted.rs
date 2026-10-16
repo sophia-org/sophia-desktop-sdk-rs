@@ -24,6 +24,8 @@ use sophia_shell_protocol::*;
 const EAGAIN: u32 = 11;
 #[path = "support/file_wire_admission.rs"]
 mod admission;
+#[path = "support/file_wire_batch.rs"]
+mod batch;
 const EINVAL: u32 = 22;
 const EALREADY: u32 = 114;
 /// The first `EAGAIN` backoff the client documents (`RETRY_FIRST`): a pass

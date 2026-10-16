@@ -1,11 +1,10 @@
 # C and Rust SDK API parity
 
-Matrix revision 4, 2026-10-16. Sophia t333 owns the complete parity gate.
+Matrix revision 5, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody
 rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
-`sophia-desktop-sdk-c` baseline `cfa6561`, plus this change series' reservation
-identity fix (unreleased 0.10.0-dev; see below).
+`sophia-desktop-sdk-c` `a90e235` (unreleased 0.10.0-dev; see below).
 
 | Operation | Native C | Native Rust | Contract or remaining difference |
 | --- | --- | --- | --- |
@@ -46,10 +45,10 @@ differences, not evidence that every shell operation already has a counterpart.
 
 | Operation | Native C | Native Rust | Contract or remaining difference |
 | --- | --- | --- | --- |
-| Atomic admission | `sophia_ss_submit` | `enqueue_content_tracked`, `enqueue_content_group_tracked` | All encoded units enter the bounded queue or none. Local admission is not server custody. Rust groups currently represent a whole candidate, not an arbitrary list of records. |
+| Atomic admission | `sophia_ss_submit` | `enqueue_content_batch` and existing single/group methods | All encoded units enter the bounded queue or none. Rust batches accept independent content records and whole candidates, each with its own transaction and ticket. Local admission is not server custody. |
 | Reserve before choosing records | `sophia_ss_reserve` | `reserve_capacity(slots, bytes)` | One live token; dispatch and admissions using unreserved capacity can continue. Rust reserves from its bulk allowance, preserving control credits. |
-| Commit delayed content | `sophia_ss_commit` | `commit_reserved_content`, `commit_reserved_content_group` | Both retain credits on invalid input/size and issue tickets only on successful admission. Rust still encodes/allocates at commit; its group is a whole candidate, not an arbitrary batch. |
-| Prepare known records | Reserve then commit | `reserve_content`, `reserve_content_group` | Rust's additional prepared handle exclusively borrows the connection; its commit needs no allocation, I/O or capacity check. |
+| Commit delayed content | `sophia_ss_commit` | `commit_reserved_content_batch` and single/group methods | Both retain credits on invalid input/size and issue tickets only on successful admission. Rust still encodes/allocates at commit. |
+| Prepare known records | Reserve then commit | `reserve_content_batch` and single/group methods | Rust's additional prepared handle exclusively borrows the connection; its commit needs no allocation, I/O or capacity check. |
 | Cancel | `sophia_ss_cancel` | `cancel_reservation(&token)`; prepared handle `cancel`/Drop | Delayed-content tokens require explicit cancellation in both SDKs. Rust's prepared handle alone cancels on Drop. No admission or tickets. |
 | Token identity | Session address, connection epoch and serial (0.10.0-dev) | Private shared identity checked against the connection | Wrong-connection and stale tokens cannot consume the live reservation. Do not move/reinitialize C session storage while a reservation is live. |
 | Custody query | `sophia_ss_outcome` | `custody(Ticket)` | Local/admitted, in-flight, Submitted, refused errno, dropped-unsent and unknown map to the corresponding Rust values. Submitted is not semantic acceptance. |
@@ -66,7 +65,23 @@ Rust preparation uses the existing encoder and local checks. Runtime grant,
 upload and semantic decisions still belong to the session. For lifecycle-aware
 candidate registration, use the existing `enqueue_candidate_tracked`; a plain
 content reservation does not update `ContentLifecycle`. Native lifecycle
-helpers and arbitrary multi-record groups remain open under t333.
+helpers and batch coverage beyond content records remain open under t333.
+
+`ContentBatchItem` describes one content record or whole candidate. A batch has
+1–64 operations, subject to remaining byte/slot credits; each item produces one
+ticket and its own server submission or upload write. Mixed batches use bulk
+credits; only all-ACK batches use control capacity. Staged resource starts take
+distinct free slots, and failure or cancellation commits none of their claims.
+An atomic local admission is not a server-wide transaction: later refusal or
+disconnect can settle each ticket differently.
+
+Rust batch tests cover transaction/order preservation, invalid middle records,
+count/byte/slot limits, delayed reservation preservation, control headroom,
+resource-claim rollback and mixed custody after disconnect. C's
+`admission_atomicity` already checks invalid middle records, byte/slot bounds,
+queued versus in-flight custody and terminal classification; its full suite
+passes at `a90e235`. This does not yet map every descriptor, catalog or native
+input operation into a common batch API.
 
 The delayed-content Rust token now survives connection service. Tests cover
 reserved byte/slot isolation, control credits, unused-credit release, invalid

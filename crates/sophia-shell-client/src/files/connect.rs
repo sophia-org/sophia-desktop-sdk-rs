@@ -384,7 +384,7 @@ impl FileWire {
             submitted_sequence: 0,
             pending: VecDeque::new(),
             staged: Vec::new(),
-            staged_begin: None,
+            staged_begins: Default::default(),
             current: None,
             backoff: super::RETRY_FIRST,
             custody: Vec::new(),

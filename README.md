@@ -48,6 +48,13 @@ bound token that can stay live during dispatch and other admissions. Use
 Invalid records or sizing leave it live. This form guarantees queue credits,
 but encoding/allocation can still fail at commit, unlike the prepared handle.
 
+For several content operations, build `ContentBatchItem::Record` and
+`ContentBatchItem::Candidate` items, each with its own transaction. Use
+`enqueue_content_batch`, `reserve_content_batch`, or
+`commit_reserved_content_batch`. Admission is all-or-none locally, with one
+ticket per item. The server still accepts or refuses each operation separately;
+one accepted batch is not an atomic server transaction.
+
 The protocol crate also carries the descriptor, tabs, shortcut/reference and
 revision-4 launcher records, native file codecs and pure validation. This
 descriptor client role follows `spec/sophia-shell-files-v1.kdl` and

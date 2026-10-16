@@ -4,7 +4,9 @@
 //! (`files`). It grants no authority, renders no pixels and opens no X11 or
 //! Wayland connection. Internals hold whole typed values (see `wire`).
 
+mod batch;
 mod candidate;
+pub use batch::ContentBatchItem;
 mod custody;
 pub use custody::{Admission, Custody, Ticket};
 mod catalog;

@@ -1,5 +1,22 @@
 # Provenance
 
+## t333 atomic content batches
+
+The shell client now admits independent content records and whole candidates
+as one bounded local batch, directly or through either reservation form.
+Each item keeps its transaction and custody ticket. Encoding stages distinct
+upload-slot claims without consuming them; failure and cancellation discard
+all claims. A fixed four-slot array replaces the single staged resource start.
+Mixed batches spend bulk credits; all-ACK batches retain control headroom.
+
+Rust workspace tests and strict all-target Clippy pass. Batch controls cover
+order, transactions, invalid middle records, size limits, cancellation, slot
+reuse, control credits and distinct Submitted/Unknown/DroppedUnsent outcomes
+after one disconnect. C's existing atomic-admission tests and full `make check`
+pass at `a90e235`; no C implementation change is needed for this slice. Matrix
+revision 5 names remaining non-content batch and native lifecycle gaps. There
+is no wire change, production pin adoption or new performance qualification.
+
 ## t333 delayed-content capacity reservations
 
 `reserve_capacity` holds encoded-unit and byte credits without borrowing the

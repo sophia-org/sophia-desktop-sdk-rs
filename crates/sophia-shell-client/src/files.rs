@@ -34,6 +34,7 @@ use crate::custody::Custody;
 use crate::wire::Outbound;
 use crate::{ShellClientError, client_record};
 
+mod batch;
 mod budget;
 mod connect;
 mod descriptor;
@@ -265,7 +266,7 @@ pub(crate) struct FileWire {
     // Outbound: a single lane, mirroring `ClientOutbox`'s FIFO order.
     pending: VecDeque<QueuedKind>,
     staged: Vec<QueuedKind>,
-    staged_begin: Option<(u16, ContentResourceId)>,
+    staged_begins: [Option<ContentResourceId>; SHELL_FILE_MAX_UPLOAD_SLOTS as usize],
     current: Option<Current>,
     /// The next `EAGAIN` backoff.
     backoff: Duration,
@@ -402,9 +403,9 @@ impl FileWire {
     }
 
     fn free_slot(&self) -> Option<u16> {
-        (0..self.upload_slots)
-            .map(u16::from)
-            .find(|&slot| self.uploads[slot as usize].is_none())
+        (0..self.upload_slots).map(u16::from).find(|&slot| {
+            self.uploads[slot as usize].is_none() && self.staged_begins[slot as usize].is_none()
+        })
     }
 
     pub(crate) fn encode(&mut self, outbound: Outbound) -> Result<Vec<Vec<u8>>, ShellClientError> {
@@ -412,7 +413,11 @@ impl FileWire {
             return Err(error.clone());
         }
         self.staged.clear();
-        self.staged_begin = None;
+        self.staged_begins.fill(None);
+        self.encode_unit(outbound)
+    }
+
+    fn encode_unit(&mut self, outbound: Outbound) -> Result<Vec<Vec<u8>>, ShellClientError> {
         if self.descriptor
             && (matches!(
                 &outbound,
@@ -570,6 +575,11 @@ impl FileWire {
                 Ok(vec![chunk.bytes])
             }
             ShellContentRecord::ResourceBegin(begin) => {
+                if self.staged_begins.contains(&Some(begin.resource)) {
+                    return Err(ShellClientError::InvalidArgument(
+                        "duplicate resource in batch",
+                    ));
+                }
                 let slot = self.free_slot().ok_or(ShellClientError::QueueSaturated)?;
                 let resource = begin.resource;
                 let header = self.next_header(ShellFileKind::ResourceBegin);
@@ -582,7 +592,7 @@ impl FileWire {
                     },
                 )?;
                 self.staged.push(QueuedKind::Record);
-                self.staged_begin = Some((slot, resource));
+                self.staged_begins[slot as usize] = Some(resource);
                 Ok(vec![bytes])
             }
             ShellContentRecord::AllocationRequest(_) => {
@@ -670,17 +680,19 @@ impl FileWire {
 
     pub(crate) fn commit_encoded(&mut self) {
         self.service_pending |= !self.staged.is_empty();
-        if let Some((slot, resource)) = self.staged_begin.take() {
-            self.uploads[slot as usize] = Some(Upload {
-                resource,
-                state: UploadState::Pending,
-            });
+        for (slot, resource) in self.staged_begins.iter_mut().enumerate() {
+            if let Some(resource) = resource.take() {
+                self.uploads[slot] = Some(Upload {
+                    resource,
+                    state: UploadState::Pending,
+                });
+            }
         }
         self.pending.extend(self.staged.drain(..));
     }
 
     pub(crate) fn cancel_encoded(&mut self) {
         self.staged.clear();
-        self.staged_begin = None;
+        self.staged_begins.fill(None);
     }
 }

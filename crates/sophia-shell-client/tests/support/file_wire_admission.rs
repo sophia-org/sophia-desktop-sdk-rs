@@ -197,7 +197,7 @@ fn reservation_does_not_promise_custody_after_peer_disconnect() {
     assert!(connection.reserve_content(tx(2), &demand(2)).is_err());
 }
 
-fn withdrawal() -> [ShellContentRecord; 2] {
+pub(super) fn withdrawal() -> [ShellContentRecord; 2] {
     [
         ShellContentRecord::CandidateBegin(ContentCandidateBegin {
             grant: grant(),
