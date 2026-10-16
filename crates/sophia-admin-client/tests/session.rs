@@ -84,13 +84,16 @@ fn fixture(fault: u8) -> (Session, thread::JoinHandle<(usize, usize)>, Instant) 
                                 format!("v1 pending 7 {id} 12\n").into_bytes()
                             } else {
                                 format!(
-                                    "v1 outcome 7 {id} {} {} 2:ok\n",
+                                    "v1 outcome 7 {id} {} {} {}:ok\n",
                                     if fault == 3 { 13 } else { 12 },
-                                    if owner == "policy" {
+                                    if fault == 6 {
+                                        "completed"
+                                    } else if owner == "policy" {
                                         "committed"
                                     } else {
                                         "unchanged"
-                                    }
+                                    },
+                                    if fault == 5 { 3 } else { 2 }
                                 )
                                 .into_bytes()
                             }
@@ -129,6 +132,9 @@ fn fixture(fault: u8) -> (Session, thread::JoinHandle<(usize, usize)>, Instant) 
                         send(&mut peer, 7, &h[5..], &11u32.to_le_bytes());
                     } else if fault == 2 {
                         break;
+                    } else if fault == 4 {
+                        let count = u32::from_le_bytes(b[12..16].try_into().unwrap());
+                        send(&mut peer, 119, &h[5..], &(count - 1).to_le_bytes());
                     } else {
                         send(&mut peer, 119, &h[5..], &b[12..16]);
                     }
@@ -161,7 +167,7 @@ fn fixture(fault: u8) -> (Session, thread::JoinHandle<(usize, usize)>, Instant) 
 fn run(s: &mut Session, start: Instant, done: impl Fn(&Session) -> bool) {
     while !done(s) {
         assert!(start.elapsed() < Duration::from_secs(2));
-        let _ = s.dispatch(start.elapsed().as_millis() as u64, 512);
+        let _ = s.dispatch(start.elapsed().as_millis() as u64, 1);
         thread::yield_now();
     }
 }
@@ -228,8 +234,8 @@ fn sequential_commands_retain_catalog_then_refresh_after_session_outcome() {
     assert_eq!(peer.join().unwrap(), (3, 2));
 }
 #[test]
-fn explicit_refusal_loss_and_bad_identity_are_terminal_without_replay() {
-    for fault in 1..=3 {
+fn refusal_loss_short_write_and_invalid_status_are_terminal_without_replay() {
+    for fault in 1..=6 {
         let (mut s, peer, start) = fixture(fault);
         run(&mut s, start, |s| s.catalog_generation().is_some());
         s.invoke(

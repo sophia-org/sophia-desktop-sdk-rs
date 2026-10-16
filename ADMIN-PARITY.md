@@ -1,6 +1,6 @@
 # Administrative SDK parity
 
-Revision 13, 2026-10-16. Both SDKs now have developing administrative sessions
+Revision 14, 2026-10-16. Both SDKs now have developing administrative sessions
 and caller-connected socket facades. Qualification remains t333 work.
 
 The pinned file contract is copied unchanged from Sophia
@@ -203,3 +203,14 @@ endpoint; the old endpoint refuses connection. All four external SDK gates
 pass for each peer. The shared fixture's existing runtime-client crash gate
 also passes. Integrated malformed/partial traffic, namespace denial and
 release-wide parity remain separate audit items.
+
+Independent integrated session tests now also reject a short write reply, a
+status detail with the wrong byte count, and Completed for a Policy command.
+Each leaves custody uncertain, refuses further invocation and sends no replay.
+Together with the existing refusal, disconnect and wrong-generation cases,
+all six failure schedules issue exactly one command and fetch one catalog.
+Command dispatch uses a one-byte budget, including the successful three-command
+sequence, which still fetches only two catalogs (the second after explicit
+refresh). Both tests and strict Rust Clippy pass. No production code changed;
+these checks establish bounded-progress correctness, not a measured speedup.
+Namespace denial and the remaining release-wide audit are still open.
