@@ -1,6 +1,6 @@
 # Administrative SDK parity
 
-Revision 2, 2026-10-16. Neither SDK yet provides the typed administrative
+Revision 3, 2026-10-16. Neither SDK yet provides the typed administrative
 client. This is required t333 work, not an unsupported-role waiver.
 
 The pinned file contract is copied unchanged from Sophia
@@ -36,4 +36,17 @@ record. Independent tests cover literal values, maximum identities/timeouts,
 zero and overflow refusals, every truncated prefix, noncanonical numbers,
 extra fields, control bytes and malformed UTF-8. Parsing does not establish
 EOF, admission or a deadline policy; those remain client responsibilities.
-Catalog, invocation and status codecs and the external-loop client remain.
+Both also decode invocation and ready/pending/outcome records without allocation.
+Command names and outcome details borrow the input; keep that storage alive
+and unchanged while using the result. All ten outcomes retain their distinct
+values. UTF-8 byte counts and Unicode control-character rejection are checked.
+Invocation encoding uses fixed 512-byte scratch storage, then copies the
+complete record into caller storage. Invalid values or insufficient capacity
+leave output unchanged. C also permits the source name to overlap destination
+storage. Neither language turns a syntactically valid name into catalog authority.
+
+Independent tests cover literal wire records, maximum IDs and name/detail
+lengths, all outcomes, borrowed pointers, short output buffers, every truncated
+prefix, malformed spelling and invalid text. Six Rust tests and the three C
+administrative test binaries pass, with strict Rust Clippy. Catalog decoding
+and the external-loop client remain; no production client gate is claimed.
