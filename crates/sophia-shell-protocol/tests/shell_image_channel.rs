@@ -318,6 +318,11 @@ fn discovery_refuses_shape_errors() {
     assert_eq!(ShellImageDiscovery::decode(&text), Ok(good.clone()));
     assert!(ShellImageDiscovery::decode(&format!("{text}role=1\n")).is_err());
     assert!(ShellImageDiscovery::decode(&text.replace("role=1", "role=01")).is_err());
+    // A zero Hello timeout is a positive-field refusal, not a default.
+    assert!(
+        ShellImageDiscovery::decode(&text.replace("hello_timeout_ms=300", "hello_timeout_ms=0"))
+            .is_err()
+    );
     assert!(ShellImageDiscovery::decode(&text.replace("image.sock", "../image.sock")).is_err());
     assert!(ShellImageDiscovery::decode(text.trim_end()).is_err());
     // The lock role code does not decode as shell discovery.
