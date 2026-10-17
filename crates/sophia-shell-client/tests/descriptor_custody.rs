@@ -17,13 +17,16 @@ fn seals() -> SealFlags {
     SealFlags::WRITE | SealFlags::GROW | SealFlags::SHRINK | SealFlags::SEAL
 }
 fn source() -> OwnedFd {
+    source_with(&[1, 2, 3, 255, 4, 5, 6, 255], seals())
+}
+fn source_with(bytes: &[u8], required: SealFlags) -> OwnedFd {
     let fd = fs::memfd_create(
         "custody-peer",
         MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING,
     )
     .unwrap();
-    assert_eq!(io::write(&fd, &[1, 2, 3, 255, 4, 5, 6, 255]).unwrap(), 8);
-    fs::fcntl_add_seals(&fd, seals()).unwrap();
+    assert_eq!(io::write(&fd, bytes).unwrap(), bytes.len());
+    fs::fcntl_add_seals(&fd, required).unwrap();
     fd
 }
 fn packet(role: u16, id: u64) -> [u8; 200] {
@@ -396,6 +399,39 @@ fn sealed_lifecycle_races_keep_custody_and_reservations() {
 
 fn refusal_expiry_and_duplicate_packets() {
     for role in [1, 2] {
+        for case in 0..8 {
+            let (tx, rx) = sockets();
+            let mut owner = Owner::new(role);
+            owner.ready = true;
+            assert!(owner.admit(1));
+            let fd = match case {
+                0 => source_with(&[0; 7], seals()),
+                1 => source_with(&[0; 9], seals()),
+                2 => source_with(&[0; 8], seals() & !SealFlags::WRITE),
+                3 => source_with(&[0; 8], seals() & !SealFlags::GROW),
+                4 => source_with(&[0; 8], seals() & !SealFlags::SHRINK),
+                5 => source_with(&[0; 8], seals() & !SealFlags::SEAL),
+                6 => std::fs::File::open("/dev/null").unwrap().into(),
+                _ => source_with(&[1, 2, 3, 0, 0, 0, 0, 0], seals()),
+            };
+            send(&tx, &packet(role, 1), &fd);
+            drop(fd);
+            owner.receive(&rx);
+            if case == 7 {
+                owner.start_worker(1);
+                owner.worker_returns(1);
+            }
+            assert_eq!(
+                owner.events,
+                [Terminal {
+                    id: 1,
+                    accepted: false,
+                    disposition: 3
+                }]
+            );
+            assert!(owner.offers.is_empty());
+            assert_eq!(owner.faults, 0);
+        }
         for count in [0, 2, 4] {
             let (tx, rx) = sockets();
             let mut owner = Owner::new(role);
