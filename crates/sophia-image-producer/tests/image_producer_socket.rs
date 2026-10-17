@@ -6,7 +6,7 @@ use sophia_image_producer::{
     ChannelState, CloseCause, ImageEvent, ImageRole, OfferState, ProducerError, ReadyEvents,
     ResourceStatusKind, create_sealed,
 };
-use sophia_shell_protocol::shell_files::{ShellImageMetadata, ShellImagePacket};
+use sophia_shell_protocol::shell_files::ShellImagePacket;
 use support::{config, metadata, nothing_waiting, ready_producer, recv_packet, sealed_fd};
 
 fn assert_source_packet(packet: &[u8], expect_offer: u64) {
@@ -23,12 +23,12 @@ fn assert_source_packet(packet: &[u8], expect_offer: u64) {
     assert_eq!(connection_epoch, 7);
     assert_eq!(channel_generation, 3);
     assert_eq!(metadata.offer_id, expect_offer);
-    assert_eq!(metadata, {
-        let mut expected = metadata;
-        expected.offer_id = expect_offer;
-        expected
-    });
-    let _ = ShellImageMetadata::BYTES;
+    assert_eq!(metadata.resource, 20 + expect_offer);
+    assert_eq!(metadata.resource_generation, 1);
+    assert_eq!(metadata.width, 2);
+    assert_eq!(metadata.height, 2);
+    assert_eq!(metadata.stride, 8);
+    assert_eq!(metadata.declared_bytes, 16);
 }
 
 fn fd_is_cloexec(fd: &std::os::fd::OwnedFd) -> bool {
@@ -118,6 +118,16 @@ fn backpressure_retains_the_admitted_source_until_drained() {
     // The caller is told to wait for writability again before the
     // resending dispatch.
     assert!(producer.poll_events().contains(ReadyEvents::OUT));
+    let fd = producer.poll_fd().unwrap();
+    let mut poll = [rustix::event::PollFd::new(
+        &fd,
+        rustix::event::PollFlags::OUT,
+    )];
+    assert_eq!(
+        rustix::event::poll(&mut poll, Some(&rustix::event::Timespec::default())).unwrap(),
+        1
+    );
+    assert!(poll[0].revents().contains(rustix::event::PollFlags::OUT));
     producer.dispatch(ReadyEvents::OUT, 13).unwrap();
     assert_eq!(producer.offer(1).unwrap().state, OfferState::Sent);
     let (packet, fds) = recv_packet(&peer);

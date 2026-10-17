@@ -135,6 +135,15 @@ name = "sophia-desktop-ids"
 version = "0.3.0"
 
 [[package]]
+name = "sophia-image-producer"
+version = "0.3.0"
+dependencies = [
+ "rustix",
+ "sophia-lock-protocol",
+ "sophia-shell-protocol",
+]
+
+[[package]]
 name = "sophia-launch-client"
 version = "0.3.0"
 dependencies = [

@@ -12,7 +12,8 @@
 //! smaller than a previous call is an argument error. The producer
 //! never replays a send and never invents a release: only
 //! `SourceReleased`, a definitive refusal before admission, or journal
-//! loss ends an admitted offer's custody. DMA-BUF sources are refused
+//! loss ends an offer's custody. After admission, only release or journal loss
+//! settles custody. DMA-BUF sources are refused
 //! at `begin` even when granted; this crate is the sealed CPU plane.
 
 mod io;
@@ -126,7 +127,7 @@ pub enum ImageClosedReason {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ImageProducerConfig {
     pub role: ImageRole,
-    /// Negotiated role-file revision: shell >= 9, lock >= 2.
+    /// Negotiated role-file revision: exactly shell 9 or lock 2.
     pub revision: u16,
     pub connection_epoch: u64,
     pub granted_kinds: u32,

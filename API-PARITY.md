@@ -1,5 +1,28 @@
 # C and Rust SDK API parity
 
+## Sealed-image producer, Rust, 2026-10-17
+
+`sophia-image-producer` provides the role-neutral channel half corresponding to
+C `sophia_ip` at `d51b033`. It owns a connected SEQPACKET socket and up to four
+offers; discovery and journal records remain the role caller's responsibility.
+Time and poll readiness are caller-supplied. Both implementations require the
+known shell r9 or lock r2 selection, admission before Source, permanent cancel
+suppression, exactly-once send attempts and authoritative release. Rust returns
+the source/socket `OwnedFd` with local begin/attach errors; C leaves the integer
+descriptor with its caller. Neither reconnects or silently chooses byte fallback.
+
+Independent Rust controls cover both role codes with real SCM_RIGHTS, descriptor
+ownership, EAGAIN/resume, ambiguous send, expiry, cancellation, four-offer order
+and final release. Root reran 19 distinct tests. These are channel controls, not
+authentication, a live 9P role-adapter result, or native performance evidence.
+The C producer and adapters pass the full C check; Rust role adapters remain
+unfinished, so complete role capability parity is still open.
+
+Rust's safe sealed builder writes exact bounded ranges using `pwrite` and then
+seals; it does not expose C's writable mapping helper. Existing sealed FDs are
+also accepted after seal/type/size checks. This storage-construction difference
+must be included in producer-cost measurements; it is not a zero-copy claim.
+
 ## Lock sealed-source refusal names, 2026-10-17
 
 Both SDKs name lock r2 reasons `invalid_source` (10) and
