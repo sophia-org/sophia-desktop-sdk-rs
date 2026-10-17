@@ -103,16 +103,24 @@ struct Offer {
     id: u64,
     phase: Phase,
     fd: Option<OwnedFd>,
-    cancelled: bool,
+    cancelled: Option<u32>,
+    admitted: [u8; 200],
     retired: bool,
     leases: usize,
     deadline: u64,
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Terminal {
-    id: u64,
-    accepted: bool,
-    disposition: u32,
+enum Event {
+    Status { id: u64, accepted: bool },
+    Released { id: u64, disposition: u32 },
+    ResourceReleased { id: u64 },
+    Closed,
+}
+fn terminal_events(id: u64, accepted: bool, disposition: u32) -> [Event; 2] {
+    [
+        Event::Status { id, accepted },
+        Event::Released { id, disposition },
+    ]
 }
 struct Owner {
     role: u16,
@@ -120,7 +128,7 @@ struct Owner {
     live_journal: bool,
     high: u64,
     offers: Vec<Offer>,
-    events: Vec<Terminal>,
+    events: Vec<Event>,
     reserved: usize,
     capacity: usize,
     backing_bytes: usize,
@@ -144,6 +152,10 @@ impl Owner {
         }
     }
     fn admit(&mut self, id: u64) -> bool {
+        self.admit_packet(packet(self.role, id))
+    }
+    fn admit_packet(&mut self, admitted: [u8; 200]) -> bool {
+        let id = u64::from_le_bytes(admitted[32..40].try_into().unwrap());
         // Two terminal records per offer plus one permanently reserved Closed
         // slot; ordinary admission/Ready records are outside this ledger.
         if !self.ready
@@ -157,7 +169,15 @@ impl Owner {
                 .count()
                 == 4
             || (self.offers.len() + 1) * 8 > self.backing_bytes
-            || self.reserved + 2 * self.events.len() + 2 + 1 > self.capacity
+            || self.reserved
+                + self
+                    .events
+                    .iter()
+                    .filter(|e| matches!(e, Event::Status { .. } | Event::Released { .. }))
+                    .count()
+                + 2
+                + 1
+                > self.capacity
         {
             return false;
         }
@@ -167,7 +187,8 @@ impl Owner {
             id,
             phase: Phase::Admitted,
             fd: None,
-            cancelled: false,
+            cancelled: None,
+            admitted,
             retired: false,
             leases: 0,
             deadline: 2000,
@@ -178,11 +199,8 @@ impl Owner {
         let id = self.offers[index].id;
         self.reserved -= 2;
         if self.live_journal {
-            self.events.push(Terminal {
-                id,
-                accepted,
-                disposition,
-            });
+            self.events
+                .extend(terminal_events(id, accepted, disposition));
         }
         if accepted {
             self.offers[index].phase = Phase::Accepted;
@@ -191,18 +209,31 @@ impl Owner {
         }
     }
     fn cancel(&mut self, id: u64) {
+        self.stop(id, 4);
+    }
+    fn stop(&mut self, id: u64, disposition: u32) {
         if let Some(i) = self.offers.iter().position(|o| o.id == id) {
             match self.offers[i].phase {
-                Phase::Validating => self.offers[i].cancelled = true,
+                Phase::Validating => {
+                    self.offers[i].cancelled.get_or_insert(disposition);
+                }
                 Phase::Accepted => {
                     self.offers[i].retired = true;
                     self.collect();
                 }
-                _ => self.terminal(i, false, 3),
+                _ => self.terminal(i, false, disposition),
             }
         }
     }
     fn collect(&mut self) {
+        if self.live_journal {
+            self.events.extend(
+                self.offers
+                    .iter()
+                    .filter(|o| o.phase == Phase::Accepted && o.retired && o.leases == 0)
+                    .map(|o| Event::ResourceReleased { id: o.id }),
+            );
+        }
         self.offers
             .retain(|o| !(o.phase == Phase::Accepted && o.retired && o.leases == 0));
     }
@@ -214,10 +245,13 @@ impl Owner {
             .map(|o| o.id)
             .collect();
         for id in ids {
-            self.cancel(id);
+            self.stop(id, 3);
         }
     }
     fn close_channel(&mut self) {
+        if !self.disabled && self.live_journal {
+            self.events.push(Event::Closed);
+        }
         self.ready = false;
         self.disabled = true;
         let ids: Vec<_> = self
@@ -241,9 +275,12 @@ impl Owner {
         self.collect();
     }
     fn receive(&mut self, socket: &OwnedFd) {
+        self.receive_control(socket, rustix::cmsg_space!(ScmRights(4)));
+    }
+    fn receive_control(&mut self, socket: &OwnedFd, control_bytes: usize) {
         let mut b = [0; 200];
         let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(4))];
-        let mut ancillary = RecvAncillaryBuffer::new(&mut space);
+        let mut ancillary = RecvAncillaryBuffer::new(&mut space[..control_bytes]);
         let result = recvmsg(
             socket,
             &mut [IoSliceMut::new(&mut b)],
@@ -252,22 +289,24 @@ impl Owner {
         )
         .unwrap();
         let mut fds = Vec::new();
+        let mut unexpected = false;
         for msg in ancillary.drain() {
             if let RecvAncillaryMessage::ScmRights(rights) = msg {
                 fds.extend(rights);
             } else {
-                panic!("unexpected ancillary message");
+                unexpected = true;
             }
         }
         let id = u64::from_le_bytes(b[32..40].try_into().unwrap());
         if !self.ready {
             return;
         }
-        if result.bytes != 200
+        if unexpected
+            || result.bytes != 200
             || result
                 .flags
                 .intersects(ReturnFlags::TRUNC | ReturnFlags::CTRUNC)
-            || b != packet(self.role, id)
+            || b[..32] != packet(self.role, id)[..32]
             || fds.len() != 1
             || id > self.high
         {
@@ -287,6 +326,10 @@ impl Owner {
         if self.offers[i].phase != Phase::Admitted {
             self.faults += 1;
             self.close_channel();
+            return;
+        }
+        if b != self.offers[i].admitted {
+            self.terminal(i, false, 3);
             return;
         }
         let fd = fds.pop().unwrap();
@@ -317,8 +360,13 @@ impl Owner {
         let valid = pixels
             .chunks_exact(4)
             .all(|p| p[..3].iter().all(|c| *c <= p[3]));
-        let accepted = valid && !o.cancelled && self.live_journal;
-        self.terminal(i, accepted, if accepted { 1 } else { 3 });
+        let accepted = valid && o.cancelled.is_none() && self.live_journal;
+        let disposition = if accepted {
+            1
+        } else {
+            o.cancelled.unwrap_or(3)
+        };
+        self.terminal(i, accepted, disposition);
     }
 }
 
@@ -355,15 +403,11 @@ fn sealed_lifecycle_races_keep_custody_and_reservations() {
             }
             assert_eq!(
                 owner.events,
-                [Terminal {
-                    id: 3,
-                    accepted: timing == 3,
-                    disposition: if timing == 3 { 1 } else { 3 }
-                }]
+                terminal_events(3, timing == 3, if timing == 3 { 1 } else { 4 })
             );
             assert_eq!(owner.reserved, 0);
             owner.cancel(3); // Repeated cancellation cannot emit a second release.
-            assert_eq!(owner.events.len(), 1);
+            assert_eq!(owner.events.len(), if timing == 3 { 3 } else { 2 });
             assert!(owner.offers.is_empty());
             // Expired and skipped lower IDs are drained; no journal amplification.
             for id in [2, 3] {
@@ -371,7 +415,7 @@ fn sealed_lifecycle_races_keep_custody_and_reservations() {
                 send(&tx, &packet(role, id), &fd);
                 owner.receive(&rx);
             }
-            assert_eq!(owner.events.len(), 1);
+            assert_eq!(owner.events.len(), if timing == 3 { 3 } else { 2 });
             assert_eq!(owner.faults, 0);
         }
         let (tx, rx) = sockets();
@@ -391,7 +435,10 @@ fn sealed_lifecycle_races_keep_custody_and_reservations() {
         owner.receive(&rx);
         assert_eq!(owner.faults, 1);
         assert!(!owner.ready);
-        assert!(!owner.events.iter().any(|e| e.id == 6));
+        assert!(!owner.events.iter().any(|e| matches!(
+            e,
+            Event::Status { id: 6, .. } | Event::Released { id: 6, .. }
+        )));
         assert_eq!(owner.reserved, 0);
     }
     journal_loss_and_retirement_do_not_invent_release();
@@ -405,6 +452,74 @@ fn sealed_lifecycle_races_keep_custody_and_reservations() {
 
 fn refusal_expiry_and_duplicate_packets() {
     for role in [1, 2] {
+        for truncated_control in [false, true] {
+            let (tx, rx) = sockets();
+            let mut owner = Owner::new(role);
+            owner.ready = true;
+            assert!(owner.admit(1));
+            let fd = source();
+            let mut b = packet(role, 1).to_vec();
+            if !truncated_control {
+                b.push(0);
+            }
+            send(&tx, &b, &fd);
+            drop(fd);
+            owner.receive_control(
+                &rx,
+                if truncated_control {
+                    0
+                } else {
+                    rustix::cmsg_space!(ScmRights(4))
+                },
+            );
+            assert!(owner.offers.is_empty());
+            assert_eq!(owner.faults, 1);
+        }
+        for matching in [false, true] {
+            let (tx, rx) = sockets();
+            let mut owner = Owner::new(role);
+            owner.ready = true;
+            let mut admitted = packet(role, 1);
+            admitted[88..96].copy_from_slice(&10u64.to_le_bytes());
+            assert!(owner.admit_packet(admitted));
+            let fd = source();
+            send(&tx, &if matching { admitted } else { packet(role, 1) }, &fd);
+            owner.receive(&rx);
+            if matching {
+                owner.start_worker(1);
+                owner.worker_returns(1);
+            }
+            assert_eq!(
+                owner.events,
+                terminal_events(1, matching, if matching { 1 } else { 3 })
+            );
+        }
+        // Isolate each bound; a refusal must not advance the admission mark.
+        let mut owner = Owner::new(role);
+        owner.ready = true;
+        owner.capacity = 3;
+        assert!(owner.admit(1));
+        assert!(!owner.admit(2));
+        assert_eq!(owner.high, 1);
+        let mut owner = Owner::new(role);
+        owner.ready = true;
+        owner.backing_bytes = 8;
+        assert!(owner.admit(1));
+        assert!(!owner.admit(2));
+        assert_eq!(owner.high, 1);
+        let mut owner = Owner::new(role);
+        owner.ready = true;
+        owner.backing_bytes = 64;
+        owner.capacity = 17;
+        for id in 1..=4 {
+            assert!(owner.admit(id));
+        }
+        assert!(!owner.admit(5));
+        assert_eq!(owner.high, 4);
+        owner.close_channel();
+        let events = owner.events.clone();
+        owner.close_channel();
+        assert_eq!(owner.events, events);
         for case in 0..8 {
             let (tx, rx) = sockets();
             let mut owner = Owner::new(role);
@@ -427,14 +542,7 @@ fn refusal_expiry_and_duplicate_packets() {
                 owner.start_worker(1);
                 owner.worker_returns(1);
             }
-            assert_eq!(
-                owner.events,
-                [Terminal {
-                    id: 1,
-                    accepted: false,
-                    disposition: 3
-                }]
-            );
+            assert_eq!(owner.events, terminal_events(1, false, 3));
             assert!(owner.offers.is_empty());
             assert_eq!(owner.faults, 0);
         }
@@ -480,7 +588,14 @@ fn refusal_expiry_and_duplicate_packets() {
             }
             assert!(owner.offers.is_empty());
             assert_eq!(owner.reserved, 0);
-            assert_eq!(owner.events.len(), usize::from(case != 4));
+            assert_eq!(
+                owner.events.len(),
+                match case {
+                    4 => 0,
+                    2 => 2,
+                    _ => 3,
+                }
+            );
             if case <= 1 {
                 assert_eq!(owner.faults, 1);
             }
@@ -497,14 +612,7 @@ fn refusal_expiry_and_duplicate_packets() {
         assert!(owner.events.is_empty());
         assert_eq!(owner.reserved, 2);
         owner.worker_returns(1);
-        assert_eq!(
-            owner.events,
-            [Terminal {
-                id: 1,
-                accepted: false,
-                disposition: 3
-            }]
-        );
+        assert_eq!(owner.events, terminal_events(1, false, 3));
     }
 }
 
@@ -538,13 +646,16 @@ fn journal_loss_and_retirement_do_not_invent_release() {
         send(&tx, &packet(role, 2), &fd);
         owner.receive(&rx);
         assert_eq!(owner.faults, 0);
-        assert_eq!(owner.events.len(), 1);
+        assert_eq!(owner.events.len(), 2);
         owner.cancel(2);
         assert_eq!(owner.offers.len(), 1);
         assert_eq!(io::pwrite(&fd, b"X", 0), Err(io::Errno::PERM));
         owner.offers[0].leases = 0;
         owner.collect();
         assert!(owner.offers.is_empty());
-        assert_eq!(owner.events.len(), 1);
+        assert_eq!(owner.events.len(), 3);
+        assert_eq!(owner.events[2], Event::ResourceReleased { id: 2 });
+        owner.collect();
+        assert_eq!(owner.events.len(), 3);
     }
 }

@@ -20,6 +20,13 @@ terminal reservations, and retained backing leases. Terminal reservation and
 backing-byte budgets are separate; ordinary transaction/admission journal
 traffic is outside this ledger. A cancelled validation retains its FD and charge
 until the fixture worker returns. No release is invented on a dead journal.
+Review follow-ups separate ResourceStatus, SourceReleased, ChannelClosed and
+ResourceReleased model events; explicit cancellation uses disposition 4 and
+expiry/refusal uses 3. Stored admitted metadata, varied topology, isolated
+offer/byte/journal bounds, send failure on a closed socket, ancillary truncation,
+and owner-integrated seal/size/pixel refusals have independent assertions.
+Released source offers are distinct from retained resource backing: a late
+packet does not fault merely because the resource still has consumer leases.
 The existing kernel/decoder targets separately exercise truncation, seal variants,
 wrong sizes and the complete draft vector corpus.
 

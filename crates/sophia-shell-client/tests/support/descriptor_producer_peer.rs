@@ -261,6 +261,9 @@ fn discovery_and_readiness() {
         assert!(!join(&mut owner, &hello(role, 1, 2), true));
         assert!(!join(&mut owner, &hello(role, 1, 3), true));
         assert!(owner.ready);
+        assert!(owner.events.is_empty());
+        assert!(!owner.disabled);
+        assert_eq!(owner.high, 0);
         let mut p = Producer::new();
         assert_eq!(p.begin(), None);
         p.ready(1, 1);
@@ -361,13 +364,25 @@ fn send_and_release() {
         assert!(owner.admit(2));
         owner.receive(&rx);
         owner.cancel(2);
-        p.release(&release_record(2, 3));
+        p.release(&release_record(2, 4));
         assert_eq!(p.custody, Custody::Released);
         p.next = Some(u64::MAX);
         assert_eq!(p.begin(), Some(u64::MAX));
         p.admitted(1, 2, u64::MAX);
         p.release(&release_record(u64::MAX, 3));
         assert_eq!(p.begin(), None);
+
+        let (tx, rx) = sockets();
+        drop(rx); // Exercise the send error branch, not just injected uncertainty.
+        let mut p = Producer::new();
+        p.ready(1, 2);
+        assert_eq!(p.begin(), Some(1));
+        p.admitted(1, 2, 1);
+        assert!(!p.pump(&tx, &fd, role, true));
+        assert_eq!(p.custody, Custody::Unknown);
+        assert!(!p.pump(&tx, &fd, role, true));
+        p.eof();
+        assert_eq!(p.releases, 0);
     }
 }
 
