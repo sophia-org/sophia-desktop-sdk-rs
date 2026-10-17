@@ -31,6 +31,15 @@ A fake capture-completion seam retains all four slots and received references
 through timeout and epoch loss until an explicit safe-cleanup signal. This
 checks the quarantine state transition only; the source is still a sealed file,
 and no DMA-BUF or GPU operation occurs.
+The producer exposes a caller-driven admission deadline and timeout: a stalled
+unsent source stops requesting writable service at expiry, never sends later,
+and still waits for authoritative release. Packet shape, including zero or
+mismatched offer IDs and malformed plane rows, is checked before stale-ID drain.
+ResourceReleased waits for journal capacity without dropping the backing charge.
+The Rust model explicitly calls collection after journal consumption; production
+must retrigger it on ACK. Producer custody is single-offer; concurrent four-offer
+producer scheduling and distinct not-ready versus ID-exhaustion API errors are
+not proved. The owner separately exercises the four-offer bound.
 The existing kernel/decoder targets separately exercise truncation, seal variants,
 wrong sizes and the complete draft vector corpus.
 

@@ -7,6 +7,7 @@ enum Custody {
     Unsent,
     AwaitingAdmission,
     Admitted,
+    ExpiredUnsent,
     Sent,
     Unknown,
     Released,
@@ -21,6 +22,8 @@ struct Producer {
     custody: Custody,
     writable: bool,
     releases: usize,
+    now: u64,
+    deadline: Option<u64>,
 }
 impl Producer {
     fn new() -> Self {
@@ -34,6 +37,8 @@ impl Producer {
             custody: Custody::Unsent,
             writable: false,
             releases: 0,
+            now: 0,
+            deadline: None,
         }
     }
     fn ready(&mut self, epoch: u64, generation: u64) {
@@ -58,6 +63,22 @@ impl Producer {
             && self.custody == Custody::AwaitingAdmission
         {
             self.custody = Custody::Admitted;
+            self.deadline = Some(self.now.checked_add(2000).unwrap());
+        }
+    }
+    fn timeout(&self) -> Option<u64> {
+        self.deadline.map(|at| at.saturating_sub(self.now))
+    }
+    fn advance(&mut self, now: u64) {
+        assert!(now >= self.now);
+        self.now = now;
+        if self.deadline.is_some_and(|at| now >= at) {
+            self.deadline = None;
+            self.writable = false;
+            if self.custody == Custody::Admitted {
+                // Stop sending; only a journal release settles admitted custody.
+                self.custody = Custody::ExpiredUnsent;
+            }
         }
     }
     fn pump(&mut self, tx: &OwnedFd, fd: &OwnedFd, role: u16, writable: bool) -> bool {
@@ -68,6 +89,7 @@ impl Producer {
             Ok(200) => {
                 self.custody = Custody::Sent;
                 self.writable = false;
+                self.deadline = None;
                 true
             }
             Err(io::Errno::AGAIN) => {
@@ -78,6 +100,7 @@ impl Producer {
             _ => {
                 self.custody = Custody::Unknown;
                 self.writable = false;
+                self.deadline = None;
                 false
             }
         }
@@ -89,6 +112,7 @@ impl Producer {
         self.ready = false;
         self.disabled = true;
         self.writable = false;
+        self.deadline = None;
         // A channel event is not a release, even for an unsent admitted offer.
     }
     fn fallback(&self, caller_permits: bool) -> bool {
@@ -98,7 +122,7 @@ impl Producer {
         self.closed(self.epoch, self.generation);
         if matches!(
             self.custody,
-            Custody::Sent | Custody::Admitted | Custody::AwaitingAdmission
+            Custody::Sent | Custody::Admitted | Custody::ExpiredUnsent | Custody::AwaitingAdmission
         ) {
             self.custody = Custody::Unknown;
         }
@@ -125,9 +149,11 @@ impl Producer {
         }
         if matches!(
             self.custody,
-            Custody::Admitted | Custody::Sent | Custody::Unknown
+            Custody::Admitted | Custody::ExpiredUnsent | Custody::Sent | Custody::Unknown
         ) {
             self.custody = Custody::Released;
+            self.deadline = None;
+            self.writable = false;
             self.releases += 1;
         }
     }
@@ -318,6 +344,21 @@ fn send_and_release() {
         assert!(p.writable);
         assert_eq!(p.custody, Custody::Admitted);
         assert!(!p.pump(&tx, &fd, role, false));
+        let mut stalled = Producer::new();
+        stalled.ready(1, 2);
+        stalled.advance(100);
+        assert_eq!(stalled.begin(), Some(1));
+        stalled.admitted(1, 2, 1);
+        assert!(!stalled.pump(&tx, &fd, role, true));
+        assert!(stalled.writable);
+        assert_eq!(stalled.timeout(), Some(2000));
+        stalled.advance(2099);
+        assert_eq!(stalled.timeout(), Some(1));
+        stalled.advance(2100);
+        assert_eq!(stalled.custody, Custody::ExpiredUnsent);
+        assert!(!stalled.writable);
+        assert_eq!(stalled.timeout(), None);
+        assert_eq!(stalled.releases, 0);
         for _ in 0..filled {
             assert_eq!(recv(&rx, &mut empty, RecvFlags::DONTWAIT).unwrap().0, 200);
         }
@@ -340,6 +381,9 @@ fn send_and_release() {
             pollfds[0].revents().contains(PollFlags::OUT)
         ));
         assert_eq!(p.custody, Custody::Sent);
+        assert!(!stalled.pump(&tx, &fd, role, true));
+        stalled.release(&release_record(1, 3));
+        assert_eq!(stalled.custody, Custody::Released);
         assert!(!p.pump(&tx, &fd, role, true));
         let mut owner = Owner::new(role);
         owner.ready = true;

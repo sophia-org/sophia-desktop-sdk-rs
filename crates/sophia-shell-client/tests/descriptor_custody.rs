@@ -314,6 +314,12 @@ impl Owner {
                 .intersects(ReturnFlags::TRUNC | ReturnFlags::CTRUNC)
             || b[..32] != packet(self.role, id)[..32]
             || fds.len() != 1
+            || id == 0
+            || b[40..48] != b[32..40]
+            || b[116..120] != [1, 0, 1, 0]
+            || b[136..144] != [0; 8]
+            || b[144..148] != b[112..116]
+            || b[148..].iter().any(|v| *v != 0)
             || id > self.high
         {
             self.faults += 1;
@@ -522,6 +528,21 @@ fn fake_capture_quarantine() {
 
 fn refusal_expiry_and_duplicate_packets() {
     for role in [1, 2] {
+        // Shape precedes stale draining; expired IDs cannot hide bad rows or IDs.
+        for at in [32, 40, 116, 118, 136, 144, 148, 152] {
+            let (tx, rx) = sockets();
+            let mut owner = Owner::new(role);
+            owner.ready = true;
+            assert!(owner.admit(1));
+            owner.expire(2000);
+            let mut b = packet(role, 1);
+            b[at] ^= 1;
+            let fd = source();
+            send(&tx, &b, &fd);
+            owner.receive(&rx);
+            assert_eq!(owner.faults, 1, "shape byte {at}");
+            assert!(owner.disabled);
+        }
         let (tx, rx) = sockets();
         let mut owner = Owner::new(role);
         owner.ready = true;
