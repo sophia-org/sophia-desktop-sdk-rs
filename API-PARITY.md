@@ -1033,6 +1033,7 @@ preserved old uncertainty and isolation from an old ticket's late completion.
 
 Admin map 13 adds paired abrupt service-process death before/after claim,
 with retained uncertainty and no automatic retry.
+
 ## B3 upload window (working candidate)
 
 The shell client keeps up to four adjacent same-resource canonical upload units
@@ -1045,6 +1046,9 @@ following units. Every write respects iounit and the canonical unit boundary.
 Short writes and EAGAIN drain invalidated tails before resuming at the confirmed
 cursor. Only EAGAIN backs off. Fencing prohibits recovery, and terminal status
 drains outstanding replies before clunk. End waits for all upload units to settle.
+Both SDKs close the writer after draining a permanent head refusal, cancelling
+that resource before End. Rust previously kept the binding after refusing one unit;
+later chunks now cannot resume that abandoned binding.
 Five request credits remain reserved for control work. The fixed window adds no
 per-burst allocation and does not change the caller API.
 
