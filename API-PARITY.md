@@ -6,9 +6,15 @@ Sophia's proposed t337 design (x6jp929h at fb5d2ae57) now has independent
 Linux kernel-prerequisite tests in both SDK trees. They exercise real SEQPACKET
 SCM_RIGHTS, required seals and FUTURE_WRITE rejection, producer-close survival,
 receiver CLOEXEC, missing/extra rights, control truncation, bounded nonblocking
-send backpressure and queued-reference teardown. Each checks its process FD
-count returns to baseline. C additionally verifies that a shared writable
-mapping makes F_ADD_SEALS(F_SEAL_WRITE) fail with EBUSY; Rust keeps its unsafe-code
+send backpressure and socket writable readiness after draining the burst. The
+fixture bounds SO_SNDBUF and accepts ETOOMANYREFS as a distinct per-user limit;
+POLLOUT proves socket progress, not availability of an SCM_RIGHTS credit.
+Each checks its FD-table count returns to baseline, not the lifetime of kernel
+references invisible in /proc/self/fd. Truncation with no control storage must
+deliver zero FDs. C additionally verifies that a shared writable
+mapping makes F_ADD_SEALS(F_SEAL_WRITE) fail with EBUSY, a received sealed mapping
+survives closing both producer and receiver FDs, and a new shared writable
+mapping fails EPERM. Rust keeps its unsafe-code
 prohibition and checks the resulting seal requirement without mapping memory.
 
 These tests use no new public API and do not implement the proposed transport.

@@ -2,6 +2,7 @@
 //! No protocol admission, journal custody or GPU completion is simulated here.
 #![cfg(target_os = "linux")]
 
+use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use rustix::fd::{AsFd, OwnedFd};
 use rustix::fs::{self, MemfdFlags, SealFlags};
 use rustix::io::{self, Errno, FdFlags};
@@ -128,6 +129,7 @@ fn real_seals_rights_truncation_and_backpressure() {
         );
         if count == 4 {
             assert!(flags.contains(ReturnFlags::CTRUNC));
+            assert!(received.is_empty());
         } else {
             assert_eq!(received.len(), count);
             assert_ne!(received.len(), 1); // The draft expects exactly one.
@@ -136,12 +138,17 @@ fn real_seals_rights_truncation_and_backpressure() {
     }
     {
         let (sender, receiver) = pair();
+        sockopt::set_socket_send_buffer_size(&sender, 4096).unwrap();
         let fds = vec![source(required())];
         let mut full = false;
+        let mut sent = 0;
         for _ in 0..65536 {
             match send_fds(&sender, &fds) {
-                Ok(6) => {}
-                Err(Errno::AGAIN) => {
+                Ok(6) => {
+                    sent += 1;
+                }
+                // The per-user in-flight rights limit is independent of POLLOUT.
+                Err(Errno::AGAIN | Errno::TOOMANYREFS) => {
                     full = true;
                     break;
                 }
@@ -150,7 +157,21 @@ fn real_seals_rights_truncation_and_backpressure() {
         }
         assert!(full, "bounded loop must reach socket backpressure");
         assert_eq!(fs::fstat(&fds[0]).unwrap().st_size, 8);
-        drop(receiver); // Teardown releases rights still queued in the kernel.
+        // One receive need not cross the socket's writable low-water mark.
+        for _ in 0..sent {
+            let (_, rights) = receive(&receiver, rustix::cmsg_space!(ScmRights(4)));
+            assert_eq!(rights.len(), 1);
+        }
+        let mut polls = [PollFd::new(&sender, PollFlags::OUT)];
+        assert_eq!(poll(&mut polls, Some(&Timespec::default())).unwrap(), 1);
+        assert!(polls[0].revents().contains(PollFlags::OUT));
+        // Readiness guarantees socket progress, not a global SCM_RIGHTS credit.
+        assert_eq!(send_fds(&sender, &[]).unwrap(), 6);
+        drop(receiver);
     }
-    assert_eq!(fd_count(), before, "no received or queued reference leaked");
+    assert_eq!(
+        fd_count(),
+        before,
+        "no FD-table leak after receive and teardown"
+    );
 }
