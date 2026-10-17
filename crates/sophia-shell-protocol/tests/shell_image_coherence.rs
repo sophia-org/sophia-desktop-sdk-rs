@@ -245,3 +245,47 @@ fn admissible_enforces_granted_kind_and_limits() {
     // Width/height are refused before the byte product matters.
     assert!(big.admissible(&expect).is_err());
 }
+
+#[test]
+fn coherence_revalidates_directly_constructed_inputs() {
+    // A partial DMA-BUF capacity group built by hand, never decoded.
+    let mut bad_limits = limits();
+    bad_limits.max_dma_source_bytes = 8;
+    assert!(
+        discovery(1)
+            .coherent(&bad_limits, &formats(vec![]), 11, 11, &bounds())
+            .is_err()
+    );
+    // Unsorted rows and a zero output, both constructed directly.
+    let row = |output: u64| ShellImageFormatRow {
+        output,
+        device_major: 226,
+        device_minor: 0,
+        fourcc: 0x3432_5241,
+        flags: SHELL_IMAGE_FORMAT_FLAG_OPAQUE,
+        modifier: 0,
+        max_width: 640,
+        max_height: 480,
+    };
+    let mut dma_limits = limits();
+    dma_limits.max_dma_source_bytes = 1 << 16;
+    dma_limits.max_renderer_allocation_bytes = 1 << 16;
+    dma_limits.max_renderer_entries = 2;
+    dma_limits.max_capture_jobs = 1;
+    assert!(
+        discovery(2)
+            .coherent(
+                &dma_limits,
+                &formats(vec![row(2), row(1)]),
+                11,
+                11,
+                &bounds()
+            )
+            .is_err()
+    );
+    assert!(
+        discovery(2)
+            .coherent(&dma_limits, &formats(vec![row(0)]), 11, 11, &bounds())
+            .is_err()
+    );
+}

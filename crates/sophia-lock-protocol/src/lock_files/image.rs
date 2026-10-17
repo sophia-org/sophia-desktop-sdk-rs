@@ -1062,7 +1062,12 @@ impl LockImageDiscovery {
         formats_connection_epoch: u64,
         role_bounds: &LockImageRoleBounds,
     ) -> Result<LockImageExpect, BinaryCodecError> {
+        // Typed structs can be constructed or mutated past decode, so the
+        // intrinsic rules are rechecked here (broader than the C API,
+        // which documents decoded inputs; no allocation is needed).
         self.validate()?;
+        limits.validate()?;
+        formats.validate()?;
         if limits_connection_epoch != self.connection_epoch
             || formats_connection_epoch != self.connection_epoch
             || limits.channel_generation != self.channel_generation
