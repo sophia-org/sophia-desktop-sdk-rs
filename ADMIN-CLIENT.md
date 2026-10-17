@@ -81,4 +81,3 @@ catalog reuse/refresh, refusal, connection loss and bad identity. Stalled and
 unsupported version tests cover budgets and startup expiry. These checks do not
 replace production owner/ticket, revocation, process-loss, foreign-language
 binding and publication gates.
-
