@@ -1,5 +1,23 @@
 # C and Rust SDK API parity
 
+## Accepted image-channel contract, 2026-10-17
+
+The spec copies now include the shared shell/lock descriptor contract and its
+54-case sealed-only corpus. The coordinated Sophia acceptance changes both
+topology contracts and reserves ResourceStatus Rejected reason 13 for shell r9.
+Current SDK codecs deliberately keep the <=12 bound and do not advertise r9;
+Sophia's Rust emission path and the independent Go oracle also retain <=12.
+No current production connection may emit or accept reason 13. t338 must add
+revision-aware ResourceStatus support without widening other reason fields,
+then new-kind codecs, authenticated discovery and channel service in both SDKs.
+Lock's reason vocabulary remains open; reason 9 is named for the r2 refusal.
+
+This is a spec/evidence update, not public descriptor API or ABI support. The
+existing byte APIs, advertised revisions and production behavior are unchanged.
+The local lifecycle peers remain models, not authenticated export, worker or
+GPU-completion proof. The image contract is authoritative for subsequent work.
+
+
 ## Proposed sealed lifecycle peer, 2026-10-17
 
 `descriptor_custody` exercises proposed Sophia x6jp929h at `0f3289c2e`.
