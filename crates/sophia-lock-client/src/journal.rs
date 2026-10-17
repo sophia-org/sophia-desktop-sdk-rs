@@ -34,6 +34,9 @@ impl From<BinaryCodecError> for Error {
 pub struct Journal {
     epoch: u64,
     capabilities: u64,
+    minimum_revision: u16,
+    maximum_revision: u16,
+    selected_revision: Option<u16>,
     chords: usize,
     welcome: Option<LockNegotiated>,
     refusal: Option<(u64, LockRefusal)>,
@@ -56,6 +59,9 @@ impl Journal {
         Ok(Self {
             epoch,
             capabilities: offer.requested_capabilities,
+            minimum_revision: offer.minimum_revision,
+            maximum_revision: offer.maximum_revision,
+            selected_revision: None,
             chords: offer.chords.len(),
             welcome: None,
             refusal: None,
@@ -79,6 +85,10 @@ impl Journal {
     }
     pub fn welcome(&self) -> Option<LockNegotiated> {
         self.welcome
+    }
+    /// The validated wire selection; never inferred from granted capabilities.
+    pub fn selected_revision(&self) -> Option<u16> {
+        self.selected_revision
     }
     pub fn refusal(&self) -> Option<(u64, LockRefusal)> {
         self.refusal
@@ -155,9 +165,11 @@ impl Journal {
             if n > self.end - self.start {
                 break;
             }
-            let record = decode_lock_file_record(
+            let revision = self.selected_revision.unwrap_or(1);
+            let record = decode_lock_file_record_at_revision(
                 &self.bytes[self.start..self.start + n],
                 LockFileClass::Event,
+                revision,
             )?;
             let h = record.header;
             let b = record.body;
@@ -169,8 +181,10 @@ impl Journal {
             }
             let event = match h.kind {
                 LockFileKind::Negotiated => {
-                    let v = LockNegotiated::decode(b)?;
+                    let (selected, v) = LockNegotiated::decode_selected(b)?;
                     if self.welcome.is_some()
+                        || selected < self.minimum_revision
+                        || selected > self.maximum_revision
                         || v.granted_capabilities & !self.capabilities != 0
                         || v.granted_chords as usize != self.chords
                         || (v.granted_chords != 0
@@ -180,6 +194,7 @@ impl Journal {
                     }
                     control(h, Control::Negotiated(v))?;
                     self.welcome = Some(v);
+                    self.selected_revision = Some(selected);
                     None
                 }
                 LockFileKind::Refused if self.welcome.is_none() => {
@@ -189,7 +204,10 @@ impl Journal {
                     None
                 }
                 LockFileKind::Submitted => {
-                    control(h, Control::Submitted(LockSubmitted::decode(b)?))?;
+                    control(
+                        h,
+                        Control::Submitted(LockSubmitted::decode_at_revision(b, revision)?),
+                    )?;
                     None
                 }
                 _ if self.welcome.is_none() => return Err(Error::Invalid),

@@ -1,5 +1,17 @@
 # C and Rust SDK API parity
 
+## Rust lock revision selection, 2026-10-17
+
+The lock session validates the explicit Negotiated selection against the offered
+range, epoch, sequence and requested grants before changing journal decoding.
+Session and Connecting expose selected_revision(); r1 offers retain their bytes.
+Sealed offers require a maximum revision of at least 2; DMA requests remain
+refused. This matches C lock-client selection at `6122b60`, without yet claiming
+its discovery/producer adapter: those Rust integration paths remain unfinished.
+Literal journal controls cover same-read and split-read r2 receipts, invalid
+selections and grants, and identity failures. The full lock-client suite and
+strict all-target Clippy pass.
+
 ## Sealed-image producer, Rust, 2026-10-17
 
 `sophia-image-producer` provides the role-neutral channel half corresponding to

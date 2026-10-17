@@ -146,6 +146,9 @@ impl Session {
     pub fn welcome(&self) -> Option<LockNegotiated> {
         self.journal.welcome()
     }
+    pub fn selected_revision(&self) -> Option<u16> {
+        self.journal.selected_revision()
+    }
     pub fn error(&self) -> Option<&SessionError> {
         self.error.as_ref()
     }

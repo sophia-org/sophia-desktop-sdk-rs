@@ -120,6 +120,12 @@ impl Connecting {
             _ => None,
         }
     }
+    pub fn selected_revision(&self) -> Option<u16> {
+        match &self.phase {
+            Some(Phase::Session(s)) => s.selected_revision(),
+            _ => None,
+        }
+    }
     pub fn refusal(&self) -> Option<LockRefusal> {
         match &self.phase {
             Some(Phase::Session(s)) => s.refusal(),

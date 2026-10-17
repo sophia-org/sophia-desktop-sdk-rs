@@ -39,7 +39,13 @@ impl Candidate {
                 if offer.minimum_revision == 0
                     || offer.minimum_revision > offer.maximum_revision
                     || caps & LOCK_FILE_CAPABILITY_PRESENT == 0
-                    || caps & !(LOCK_FILE_CAPABILITY_PRESENT | LOCK_FILE_CAPABILITY_CHORDS) != 0
+                    || caps
+                        & !(LOCK_FILE_CAPABILITY_PRESENT
+                            | LOCK_FILE_CAPABILITY_CHORDS
+                            | LOCK_FILE_CAPABILITY_SEALED_MEMORY)
+                        != 0
+                    || (caps & LOCK_FILE_CAPABILITY_SEALED_MEMORY != 0
+                        && offer.maximum_revision < 2)
                     || (!offer.chords.is_empty() && caps & LOCK_FILE_CAPABILITY_CHORDS == 0)
                 {
                     return Err(BinaryCodecError::InvalidRecord("negotiation_offer"));
