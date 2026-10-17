@@ -97,6 +97,14 @@ enum SubmissionPhase {
         tag: Tag,
         fid: Fid,
     },
+    /// Both writes are issued; replies may arrive in either order.
+    WritePair {
+        record_tag: Tag,
+        submit_tag: Tag,
+        fid: Fid,
+        record_ok: Option<bool>,
+        reply: Option<SubmitReply>,
+    },
     /// `submit` is on the wire: from here the session may hold custody.
     WriteSubmit {
         tag: Tag,
@@ -114,6 +122,13 @@ enum SubmissionPhase {
     },
     /// `submit` returned `Rwrite`; waiting for the `Submitted` event.
     AwaitSubmitted,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SubmitReply {
+    Write(u32),
+    Error(sophia_9p_records::Errno),
+    Invalid,
 }
 
 enum Current {

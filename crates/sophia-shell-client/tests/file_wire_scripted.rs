@@ -798,10 +798,10 @@ fn a_disconnect_after_submit_is_unknown_and_queued_units_are_dropped_unsent() {
     assert_eq!(connection.take_content(), Err(ShellClientError::PeerClosed));
 }
 
-/// A disconnect while only the record is staged in `transaction` (its write
-/// unanswered, or answered but `submit` not yet sent) transferred nothing.
+/// Submit now accompanies the record. A lost reply leaves custody unknown,
+/// even when the record's own reply was withheld.
 #[test]
-fn a_disconnect_with_only_the_transaction_written_is_dropped_unsent() {
+fn a_disconnect_with_the_paired_record_unanswered_is_unknown() {
     for answered in [false, true] {
         let (mut connection, mut peer) = connect(bar(0));
         peer.hold_transactions = true;
@@ -816,8 +816,12 @@ fn a_disconnect_with_only_the_transaction_written_is_dropped_unsent() {
         }
         peer.close();
         let (custody, _) = settle(&mut connection, &mut peer, ticket);
-        assert_eq!(custody, Custody::DroppedUnsent, "answered: {answered}");
-        assert!(peer.submits.is_empty(), "answered: {answered}");
+        assert_eq!(custody, Custody::Unknown, "answered: {answered}");
+        assert_eq!(
+            peer.submits.len(),
+            1,
+            "submit was already issued: {answered}"
+        );
     }
 }
 

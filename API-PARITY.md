@@ -1,5 +1,21 @@
 # C and Rust SDK API parity
 
+## Queued shell submit (B2), 2026-10-17
+
+Both SDKs may issue submit behind the final record fragment before its reply.
+They retain both outcomes, preserve observed custody and stop after a failed
+record without retrying the incomplete assembly. Normal submit retry remains
+unchanged after a successful record write. Caller APIs and buffer ownership
+are unchanged; C's client storage layout grows, so consumers and bindings
+must rebuild against matching headers and library.
+
+Rust can queue covering ACK, record and submit together on a reusable writer.
+C keeps its confirmed-ACK barrier, then queues record and submit together.
+This is a scheduling difference, not different custody semantics. Independent
+scripted tests establish ordering and failure handling. Independent startup
+peers pass exports `116075541` and `feaf3cbc7`; broader export failures,
+vendor adoption and native performance remain separate gates.
+
 ## Cumulative shell ACK scheduling, 2026-10-17
 
 Rust's automatic mode now gathers consumed records until the bounded drive
