@@ -1,5 +1,22 @@
 # C and Rust SDK API parity
 
+## Draft image codec fixtures, 2026-10-17
+
+Independent test-only decoders exercise 53 vectors from proposed Sophia
+x6jp929h (3a1e5588d): channel Hello/Source, records 0x7000–0x7006 and discovery.
+Each rejects every truncated prefix of a valid case and trailing bytes.
+The fixture fixes the admitted grant/allocation and sealed-only discovery;
+it is not a general DMA format decoder or a public protocol implementation.
+The source corpus is draft-vectors.json (d76d9b3f84854dabb04a223c522bd6001af2b85a0fc73b2987de16e1d6b6e71a)
+and draft-object-vectors-r2.json (8444e92f1f1db24165f2576aa02376a4f3f46825169cc4792fc517325771775b).
+Their literal cases are copied into test support only, not normative spec/.
+
+On Linux, both decoders also compare declared bytes to real sealed file sizes:
+0, 7 and 9 bytes refuse an 8-byte declaration, while 8 passes. Unsupported seal
+queries refuse. These checks do not transfer the file through an authenticated
+owner or validate pixels. Production codecs, admission, journal custody and
+DMA-BUF validation remain unimplemented by this slice; no public ABI changes.
+
 ## Proposed image-channel kernel fixtures, 2026-10-17
 
 Sophia's proposed t337 design (x6jp929h at fb5d2ae57) now has independent
