@@ -3,6 +3,9 @@
 pub use sophia_lock_protocol as protocol;
 mod candidate;
 pub use candidate::{Candidate, Prepared};
+/// Provisional bounded discovery reader; integrated by the image adapter.
+#[doc(hidden)]
+pub mod image_read;
 /// Provisional ordered journal; session integration remains in development.
 #[doc(hidden)]
 pub mod journal;
