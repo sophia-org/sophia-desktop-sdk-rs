@@ -1,11 +1,6 @@
 //! One retained frame. Partial pixels never become a completed image.
-use crate::{
-    protocol::{FrameInfo, decode_frame_info},
-    read_window::{ReadWindow, Request},
-    startup::Opened,
-};
-use sophia_9p_client::pipeline::{IoBudget, IoInterest, PipelineError, Reply};
-use sophia_9p_records::{Fid, QidKind, Tag};
+use crate::{protocol::FrameInfo, startup::Opened};
+use sophia_9p_client::pipeline::{IoBudget, IoInterest, PipelineError};
 use std::os::fd::{AsFd, BorrowedFd};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Error {
@@ -22,49 +17,20 @@ impl From<PipelineError> for Error {
         Self::Wire(e)
     }
 }
-#[derive(Clone, Copy, PartialEq)]
-enum Stage {
-    WalkInfo,
-    OpenInfo,
-    Info,
-    WalkFrame,
-    OpenFrame,
-    Pixels,
-    Eof,
-    Recheck,
-    ClunkFrame,
-    ClunkInfo,
-    Ready,
-}
+mod exchange;
+pub(crate) use exchange::Exchange;
+pub(crate) const READ_CHUNK: u32 = 60 * 1024;
 pub struct Frame {
     opened: Option<Opened>,
-    stage: Stage,
-    pending: Option<Tag>,
-    info_fid: Fid,
-    frame_fid: Fid,
-    info_unit: u32,
-    sent: usize,
-    record: [u8; 64],
-    check: [u8; 64],
-    used: usize,
-    info: Option<FrameInfo>,
-    pixels: Vec<u8>,
-    window: Option<ReadWindow>,
-    reads: [Option<(Tag, Request)>; 4],
-    now: u64,
-    deadline: u64,
-    error: Option<Error>,
+    exchange: Exchange,
 }
 impl Frame {
-    /// Exclusive, quiescent role ownership. Reuses caller storage; at most one
-    /// image allocation after metadata validation. The caller retains the relay.
+    /// Exclusive role ownership. Reuses caller storage; at most one image
+    /// allocation after metadata validation. Retain the launch relay separately.
     pub fn new(opened: Opened, storage: Vec<u8>, now: u64, deadline: u64) -> Result<Self, Error> {
         let w = &opened.pipeline;
         if now < opened.now {
             return Err(Error::ClockRegression);
-        }
-        if deadline <= now {
-            return Err(Error::Deadline);
         }
         if !w.is_quiescent()
             || w.fid_count() != 1
@@ -75,26 +41,12 @@ impl Frame {
         {
             return Err(Error::Invalid);
         }
+        let exchange = Exchange::new(storage, w.msize(), now, deadline)?;
         let mut s = Self {
             opened: Some(opened),
-            stage: Stage::WalkInfo,
-            pending: None,
-            info_fid: Fid::NOFID,
-            frame_fid: Fid::NOFID,
-            info_unit: 0,
-            sent: 0,
-            record: [0; 64],
-            check: [0; 64],
-            used: 0,
-            info: None,
-            pixels: storage,
-            window: None,
-            reads: [None; 4],
-            now,
-            deadline,
-            error: None,
+            exchange,
         };
-        s.drive()?;
+        s.drive(now)?;
         Ok(s)
     }
     pub fn fd(&self) -> Option<BorrowedFd<'_>> {
@@ -109,58 +61,55 @@ impl Frame {
             .map_err(Into::into)
     }
     pub fn deadline(&self) -> Option<u64> {
-        (self.error.is_none() && self.stage != Stage::Ready).then_some(self.deadline)
+        self.exchange.deadline()
     }
     pub fn error(&self) -> Option<&Error> {
-        self.error.as_ref()
+        self.exchange.error()
     }
-    /// Accepted payload bytes, including incomplete scratch. Not image validity.
+    /// Accepted scratch bytes, not image validity.
     pub fn received(&self) -> u64 {
-        self.window.as_ref().map_or(0, ReadWindow::received)
+        self.exchange.received()
     }
     pub fn result(&self) -> Option<(FrameInfo, &[u8])> {
-        if self.error.is_none() && self.stage == Stage::Ready {
-            Some((self.info?, &self.pixels))
-        } else {
-            None
-        }
+        self.exchange.result()
     }
-    /// Completed image and role are transferred without copying pixels.
+    /// Transfer the completed image and original role without copying pixels.
     pub fn finish(mut self) -> Result<(Opened, FrameInfo, Vec<u8>), Error> {
-        if let Some(e) = self.error {
-            return Err(e);
+        if let Some(e) = self.error() {
+            return Err(e.clone());
         }
-        if self.stage != Stage::Ready {
-            return Err(Error::Invalid);
-        }
-        let mut opened = self.opened.take().ok_or(Error::Closed)?;
-        opened.now = self.now;
-        Ok((opened, self.info.ok_or(Error::Invalid)?, self.pixels))
+        let mut o = self.opened.take().ok_or(Error::Closed)?;
+        o.now = self.exchange.now();
+        let (info, pixels) = self.exchange.finish()?;
+        Ok((o, info, pixels))
     }
-    /// Failure/cancellation may leave scratch bytes, never a valid image.
+    /// Failed/cancelled storage remains scratch, never a completed image.
     pub fn into_scratch(self) -> Vec<u8> {
-        self.pixels
+        self.exchange.into_scratch()
     }
     fn fail(&mut self, e: Error) -> Error {
         self.opened.take();
-        self.error.get_or_insert(e).clone()
+        self.exchange.fail(e)
     }
     pub fn close(&mut self) {
         self.fail(Error::Closed);
     }
+    fn drive(&mut self, now: u64) -> Result<(), Error> {
+        let o = self.opened.as_mut().ok_or(Error::Closed)?;
+        self.exchange.step(now, &mut o.pipeline, o.root)
+    }
     pub fn dispatch(&mut self, now: u64, bytes: usize) -> Result<(), Error> {
-        if now < self.now {
+        if now < self.exchange.now() {
             return Err(Error::ClockRegression);
         }
-        if let Some(e) = &self.error {
+        if let Some(e) = self.error() {
             return Err(e.clone());
         }
-        self.now = now;
-        if self.stage == Stage::Ready {
-            return Ok(());
+        if let Err(e) = self.drive(now) {
+            return Err(self.fail(e));
         }
-        if now >= self.deadline {
-            return Err(self.fail(Error::Deadline));
+        if self.result().is_some() {
+            return Ok(());
         }
         let mut budget = IoBudget::new(bytes);
         for _ in 0..32 {
@@ -171,150 +120,16 @@ impl Frame {
             let Some((tag, reply)) = w.take_reply() else {
                 break;
             };
-            if let Err(e) = self.accept(tag, reply).and_then(|()| self.drive()) {
+            if let Err(e) = self
+                .exchange
+                .reply(tag, reply)
+                .and_then(|()| self.drive(now))
+            {
                 return Err(self.fail(e));
             }
-            if self.stage == Stage::Ready || budget.exhausted() {
+            if self.result().is_some() || budget.exhausted() {
                 break;
             }
-        }
-        Ok(())
-    }
-    fn drive(&mut self) -> Result<(), Error> {
-        if self.pending.is_some() || self.stage == Stage::Ready {
-            return Ok(());
-        }
-        let o = self.opened.as_mut().ok_or(Error::Closed)?;
-        let w = &mut o.pipeline;
-        if self.stage == Stage::Pixels {
-            let window = self.window.as_mut().ok_or(Error::Invalid)?;
-            for slot in &mut self.reads {
-                if slot.is_none()
-                    && let Some(r) = window.reserve().map_err(|_| Error::Invalid)?
-                {
-                    *slot = Some((w.read(self.frame_fid, r.offset, r.count)?, r));
-                }
-            }
-            return Ok(());
-        }
-        self.pending = Some(match self.stage {
-            Stage::WalkInfo => {
-                let (t, f) = w.walk(o.root, &[b"frame-info"])?;
-                self.info_fid = f;
-                t
-            }
-            Stage::WalkFrame => {
-                let (t, f) = w.walk(o.root, &[b"frame"])?;
-                self.frame_fid = f;
-                t
-            }
-            Stage::OpenInfo => w.lopen(self.info_fid, 0)?,
-            Stage::OpenFrame => w.lopen(self.frame_fid, 0)?,
-            Stage::Info | Stage::Recheck => {
-                let mut count = (65 - self.used).min((w.msize() - 11) as usize) as u32;
-                if self.info_unit > 0 {
-                    count = count.min(self.info_unit);
-                }
-                self.sent = count as usize;
-                w.read(self.info_fid, self.used as u64, count)?
-            }
-            Stage::Eof => w.read(self.frame_fid, self.pixels.len() as u64, 1)?,
-            Stage::ClunkFrame => w.clunk(self.frame_fid)?,
-            Stage::ClunkInfo => w.clunk(self.info_fid)?,
-            _ => return Err(Error::Invalid),
-        });
-        Ok(())
-    }
-    fn accept(&mut self, tag: Tag, reply: Reply) -> Result<(), Error> {
-        if let Reply::Error(e) = reply {
-            return Err(Error::Remote(e.0));
-        }
-        if self.stage == Stage::Pixels {
-            let slot = self
-                .reads
-                .iter_mut()
-                .find(|s| s.as_ref().is_some_and(|(t, _)| *t == tag))
-                .ok_or(Error::Invalid)?;
-            let (_, request) = slot.take().ok_or(Error::Invalid)?;
-            let Reply::Read(data) = reply else {
-                return Err(Error::Invalid);
-            };
-            let window = self.window.as_mut().ok_or(Error::Invalid)?;
-            let offset = window
-                .accept(request.token, data.len())
-                .map_err(|_| Error::Invalid)? as usize;
-            self.pixels[offset..offset + data.len()].copy_from_slice(&data);
-            if window.payload_complete() {
-                self.stage = Stage::Eof;
-            }
-            return Ok(());
-        }
-        if self.pending.take() != Some(tag) {
-            return Err(Error::Invalid);
-        }
-        match (self.stage, reply) {
-            (Stage::WalkInfo, Reply::Walk(q)) if q.len() == 1 && q[0].kind == QidKind::File => {
-                self.stage = Stage::OpenInfo
-            }
-            (Stage::WalkFrame, Reply::Walk(q)) if q.len() == 1 && q[0].kind == QidKind::File => {
-                self.stage = Stage::OpenFrame
-            }
-            (Stage::OpenInfo, Reply::Lopen { qid, iounit }) if qid.kind == QidKind::File => {
-                self.info_unit = iounit;
-                self.stage = Stage::Info;
-            }
-            (Stage::OpenFrame, Reply::Lopen { qid, iounit }) if qid.kind == QidKind::File => {
-                self.window = Some(
-                    ReadWindow::new(
-                        self.pixels.len() as u64,
-                        self.opened.as_ref().ok_or(Error::Closed)?.pipeline.msize(),
-                        iounit,
-                        60 * 1024,
-                    )
-                    .map_err(|_| Error::Invalid)?,
-                );
-                self.stage = Stage::Pixels;
-            }
-            (Stage::Info | Stage::Recheck, Reply::Read(data)) => {
-                if data.len() > self.sent || data.len() > 64 - self.used {
-                    return Err(Error::Invalid);
-                }
-                if data.is_empty() {
-                    if self.used != 64 {
-                        return Err(Error::Invalid);
-                    }
-                    if self.stage == Stage::Recheck {
-                        if self.check != self.record {
-                            return Err(Error::Invalid);
-                        }
-                        self.stage = Stage::ClunkFrame;
-                    } else {
-                        let info = decode_frame_info(&self.record).map_err(|_| Error::Invalid)?;
-                        let length = info.image_bytes as usize;
-                        self.pixels
-                            .try_reserve(length.saturating_sub(self.pixels.len()))
-                            .map_err(|_| Error::Capacity)?;
-                        self.pixels.resize(length, 0);
-                        self.info = Some(info);
-                        self.stage = Stage::WalkFrame;
-                    }
-                } else {
-                    let target = if self.stage == Stage::Info {
-                        &mut self.record
-                    } else {
-                        &mut self.check
-                    };
-                    target[self.used..self.used + data.len()].copy_from_slice(&data);
-                    self.used += data.len();
-                }
-            }
-            (Stage::Eof, Reply::Read(data)) if data.is_empty() => {
-                self.used = 0;
-                self.stage = Stage::Recheck;
-            }
-            (Stage::ClunkFrame, Reply::Clunk) => self.stage = Stage::ClunkInfo,
-            (Stage::ClunkInfo, Reply::Clunk) => self.stage = Stage::Ready,
-            _ => return Err(Error::Invalid),
         }
         Ok(())
     }

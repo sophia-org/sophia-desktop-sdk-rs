@@ -66,7 +66,10 @@ fn main() {
         _ => 13,
     };
     let cancelled = mode.starts_with("sdk-request-cancelled");
-    let frame_mode = mode.starts_with("sdk-frame") || request_mode;
+    let session_capture = mode == "sdk-session-capture";
+    let session_frame = mode == "sdk-session-frame";
+    let frame_mode =
+        mode.starts_with("sdk-frame") || request_mode || session_capture || session_frame;
     let revoke = mode == "sdk-frame-revoke";
     assert_eq!(
         opened.info.request,
@@ -91,6 +94,9 @@ fn main() {
         session.watch(expires).unwrap();
         session.snapshot(File::Status, expires).unwrap();
         let mut phase = 0;
+        let mut frame_cancelled = false;
+        let mut image = Some(vec![0xa5; if session_frame { 256 * 128 * 4 } else { 0 }]);
+        let image_pointer = image.as_ref().unwrap().as_ptr();
         loop {
             assert!(Instant::now() < deadline);
             let interest = session.io_interest().unwrap();
@@ -119,7 +125,11 @@ fn main() {
             if phase == 0 && session.snapshot_result().is_some() {
                 assert_eq!(
                     session.snapshot_result().unwrap(),
-                    b"request=unavailable transfer=ready\n"
+                    if session_capture || session_frame {
+                        b"request=output-capture-v1 transfer=ready\n".as_slice()
+                    } else {
+                        b"request=unavailable transfer=ready\n".as_slice()
+                    }
                 );
                 assert!(session.watch_waiting() && session.watch_event().is_none());
                 session.release_snapshot().unwrap();
@@ -129,30 +139,72 @@ fn main() {
                     assert!(Instant::now() < deadline);
                     std::thread::sleep(Duration::from_millis(1));
                 }
-                session.transfer(buffer.take().unwrap(), expires).unwrap();
+                if session_frame {
+                    session.frame(image.take().unwrap(), expires).unwrap();
+                } else if session_capture {
+                    session
+                        .capture(
+                            sophia_portal_client::protocol::CaptureRequest {
+                                serial: 2,
+                                output: 7,
+                            },
+                            1,
+                            expires,
+                        )
+                        .unwrap();
+                } else {
+                    session.transfer(buffer.take().unwrap(), expires).unwrap();
+                }
                 if mode == "sdk-session-cancel" {
                     session.cancel_watch().unwrap();
                 }
                 phase = 1;
             }
-            if phase == 1 && session.watch_event().is_some() && session.snapshot_result().is_some()
+            if session_frame && !frame_cancelled && session.frame_received() > 0 {
+                assert!(session.frame_result().is_none());
+                session.cancel_watch().unwrap();
+                frame_cancelled = true;
+            }
+            if phase == 1
+                && session.watch_event().is_some()
+                && (if session_frame {
+                    session.frame_result().is_some()
+                } else if session_capture {
+                    session.capture_result().is_some()
+                } else {
+                    session.snapshot_result().is_some()
+                })
             {
                 break;
             }
         }
         assert_eq!(
             session.watch_event(),
-            Some(if mode == "sdk-session-cancel" {
+            Some(if mode == "sdk-session-cancel" || session_frame {
                 WatchEvent::Cancelled
             } else {
                 WatchEvent::Revoked
             })
         );
         session.release_watch().unwrap();
-        let (buffer, length) = session.take_transfer().unwrap();
-        assert_eq!(buffer.as_ptr(), pointer);
-        assert_eq!(&buffer[..length], b"granted");
-        assert!(buffer[length..].iter().all(|b| *b == 0xa5));
+        if session_frame {
+            assert!(frame_cancelled);
+            let (info, image) = session.take_frame().unwrap();
+            assert_eq!(image.as_ptr(), image_pointer);
+            assert_eq!(info.image_bytes, 256 * 128 * 4);
+            assert!(image.iter().all(|b| *b == 17));
+        } else if session_capture {
+            assert_eq!(
+                session.capture_result(),
+                Some((sophia_portal_client::protocol::CaptureState::Ready, 2))
+            );
+            session.release_capture().unwrap();
+        } else {
+            let (buffer, length) = session.take_transfer().unwrap();
+            assert_eq!(buffer.as_ptr(), pointer);
+            assert_eq!(&buffer[..length], b"granted");
+            assert!(buffer[length..].iter().all(|b| *b == 0xa5));
+        }
         let role = session.finish().unwrap();
         assert_eq!(role.pipeline.fid_count(), 1);
         assert!(role.pipeline.is_quiescent());

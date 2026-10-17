@@ -1,6 +1,6 @@
 [package]
 name = "sophia-portal-protocol"
-description = "Passive Sophia portal recipient records."
+description = "Passive Sophia portal recipient and trusted requester records."
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

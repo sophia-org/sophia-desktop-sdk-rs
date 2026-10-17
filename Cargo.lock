@@ -118,6 +118,19 @@ name = "sophia-admin-protocol"
 version = "0.3.0"
 
 [[package]]
+name = "sophia-broker-client"
+version = "0.3.0"
+dependencies = [
+ "sophia-9p-client",
+ "sophia-9p-records",
+ "sophia-broker-protocol",
+]
+
+[[package]]
+name = "sophia-broker-protocol"
+version = "0.3.0"
+
+[[package]]
 name = "sophia-desktop-ids"
 version = "0.3.0"
 

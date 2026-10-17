@@ -1,6 +1,6 @@
 # Portal SDK parity
 
-Revision 20, 2026-10-16. Recipient components are developing; there is no complete
+Revision 23, 2026-10-16. Recipient components are developing; there is no complete
 portal client or parity claim.
 
 The unchanged recipient contract in `spec/portal-client-files.md` comes from
@@ -324,3 +324,361 @@ or performance evidence. Both suites and strict Rust Clippy pass.
 
 Next integrate capture requests and frame reads into the shared scheduler.
 Reconnect/recovery, trusted requester/broker and publication remain open.
+
+
+## Shared capture scheduling
+
+One capture request can now run beside a retained watch. It occupies the single
+foreground slot until its result is released; snapshots and transfers return
+Busy meanwhile. Both drivers reuse their exclusive capture operation state,
+including atomic writes, custody, immutable status snapshots and paced polling.
+The session remains the sole socket driver with one shared dispatch budget.
+Capture records and status scratch remain inline; no frame storage is involved.
+
+| Capability | Rust Session | C session |
+| --- | --- | --- |
+| Reserve request | `capture` | `sophia_pcs_capture` |
+| Inspect custody after failure | `capture_custody` | `sophia_pcs_capture_custody` |
+| Retained historical outcome and serial | `capture_result` | `sophia_pcs_capture_result` |
+| Release foreground slot | `release_capture` | `sophia_pcs_release_capture` |
+| Earliest wake, including paced status | `deadline` | `sophia_pcs_deadline` |
+
+The caller reserves increasing durable serials across reconnects. Ready remains
+historical status, not permission to read pixels. Session failure hides results
+but preserves custody; neither driver replays a request. C's caller-owned session
+layout grows and must be recompiled. There is no released ABI update yet.
+
+Independent tests cover cancellation of a watch during accepted capture,
+fragmented status, paced Queued-to-Ready observation, two explicit requests,
+Busy admission and seven failure modes with matching custody. Both independent
+peers pass all 21 production portal gates, including a new request replacing a
+watched capture object. Strict Rust Clippy and the affected C tests pass.
+Shared frame reads, broader recovery, trusted requester/broker, foreign bindings
+and publication remain open. This is not physical or measured performance evidence.
+
+
+## Shared frame scheduling
+
+A frame read now occupies the same foreground slot as a snapshot or capture
+request, beside one retained watch. Both SDKs reuse the exclusive frame state:
+retain metadata and pixel fids, read through the existing four-request window,
+check exact EOF, recheck the original metadata, and clunk both before exposing
+an image. Six request slots reserve four pixel reads plus watch/flush; four
+fids retain root, watch, metadata and pixels. Rust also validates input capacity
+for four bounded Rreads and two scalar replies, using the existing 60 KiB
+payload cap. The default pipeline bounds suffice.
+
+| Capability | Rust Session | C session |
+| --- | --- | --- |
+| Start retained frame | `frame` | `sophia_pcs_frame` |
+| Inspect scratch progress | `frame_received` | `sophia_pcs_frame_received` |
+| Borrow verified result | `frame_result` | `sophia_pcs_frame_result` |
+| Release result | `take_frame` moves Vec and metadata | `sophia_pcs_release_frame`; caller already owns pixels |
+| Recover failed scratch | `take_frame_scratch` after terminal failure/close | Caller retains storage; close role fd before reuse |
+
+Rust reuses the supplied Vec and grows it at most once after metadata validation.
+C requires sufficient disjoint caller storage and allocates nothing. Neither
+adds a second image copy. Partial or failed storage remains scratch; results
+stay hidden after any terminal session error. This grows the unreleased C
+session layout again; recompile its users.
+
+Independent peers require four pixel reads before replying, deliver that first
+batch in reverse order with short reads, cancel a watch during a partial image,
+and reuse the same image address for a second frame. Both run at the minimum
+six request/four-fid capacity and cover stale recheck, changed metadata, excess
+pixels, premature EOF and failed clunk; C also checks insufficient storage and
+overlap. All 22 Rust portal tests, the affected strict C tests and strict Rust
+Clippy pass. Both external peers pass all 22 production portal gates, including
+frame completion despite watch cancellation.
+
+Recipient composition is now implemented. Remaining work includes the trusted
+portal-requester API (a separate admitted role), explicit recovery qualification,
+the broker export/client dependency, foreign bindings and signed publication.
+No physical acceptance or measured performance improvement is claimed here.
+
+
+## Trusted requester record foundation
+
+The `requester` Rust protocol module and C `sophia_portal_requester_files.h`
+now provide matching passive codecs for the separate trusted requester role:
+canonical api discovery; Limits; Negotiate, TransferRequest, PayloadBegin,
+PayloadEnd and TransferCancel candidates; Negotiated, Refused, Submitted,
+Decision and TransferOutcome events; and exact submit/ack controls.
+
+Transfer IDs, source generation and owner-clock deadlines may be zero in a
+request so the lifecycle can answer Denied. Unsupported negotiation ranges
+remain representable for Refused. All seven transfer kinds are typed. Optional
+UTF-8 MIME preserves absent versus present-empty and is bounded to 255 bytes.
+Decoders reject malformed envelopes, padding, enums, lengths and limit bounds;
+Denied cannot carry hidden grant fields. Encoders use fixed scratch storage
+and leave caller output unchanged on failure. No payload allocation is added.
+
+The pinned requester document, KDL and referenced broker custody document come
+unchanged from signed Sophia `519f07fd1b6db3a665ae1e74368a3d2e234cbf9c`:
+
+| File | SHA-256 |
+| --- | --- |
+| `sophia-portal-files.md` | `81d8983fd05bc0efd0cf0d36cc82d2d7d89467b1fa105d758024e11008aa568b` |
+| `sophia-portal-files-v1.kdl` | `eb14ff3474b297e44409326119f22ed5ff048bb558452106d3c85ffc494244dd` |
+| `sophia-broker-files.md` | `01ef46dab00a05ef2e097f5b57d180c7be749f84ee3f43e031feaa5656bad2bc` |
+
+The KDL's old design-only preamble predates the requester implementation;
+the accompanying requester document describes the implemented private channel.
+The broker document remains design-only. Copying it provides the referenced
+custody rules, not evidence of a broker export or client.
+
+Independent native tests check literal layouts, domain-refusal representation,
+MIME boundaries, all candidate/event kinds, truncation, padding, bounds and
+unchanged failure outputs. C also tests invalid UTF-8 sequences; Rust accepts
+borrowed `str`. The focused tests, strict Rust Clippy, C UBSan trap-mode run and
+both spec manifests pass. These are codec checks only. Requester startup,
+negotiation, retained journal/ack, submission custody, upload, terminal outcomes
+and production-export qualification remain to be implemented in the SDKs.
+
+## Requester submission and journal state
+
+Rust `requester::{Submission, Journal}` and C
+`sophia_portal_requester_state.h` now provide equivalent fixed-storage state.
+Candidates remain immutable; EAGAIN permits explicit same-ID retry without
+extending the deadline. A correlated receipt establishes Submitted custody even
+before the write reply. Connection loss preserves known custody and marks an
+issued operation without a receipt Unknown.
+
+The journal accepts partial and coalesced records in 512 bytes, retains one
+application event, and freezes each cumulative acknowledgement until its exact
+write reply. Reads and consumption do not extend the acknowledgement deadline.
+The local timer starts with observed bytes; the server still enforces its own
+publication-based deadline. These components neither admit a connection nor
+perform I/O. The transport owner must close on terminal errors.
+
+Six Rust tests and an independent C suite cover reply ordering, retry, uncertain
+delivery, fragmented/coalesced events, frozen acknowledgements, deadline expiry,
+sequence gaps, short replies and clock regression. Strict Rust Clippy and the
+C warnings-as-errors build pass. Startup, negotiation, transport integration,
+grants/uploads and production requester gates remain open; this is not a
+complete requester client or a performance result.
+
+## Requester discovery startup
+
+Rust `requester::startup::Opening` and C `sophia_pqo` take exclusive use of a
+caller-admitted trusted requester root. They read exact `api` and `limits`
+snapshots, require matching epochs and successful clunks, then hand the same
+connection/root to the session. Discovery does not establish admission or
+complete negotiation. The caller retains the trusted authority channel.
+
+Both drivers use fixed 128-byte metadata storage, honor iounit, bound each
+dispatch and keep one deadline across both files. Independent scripted peers
+pass fragmented reads with one-byte I/O budgets, root preservation, no repeated
+attach/version, malformed versions/qids, clunk errors, mismatched epochs,
+truncated/oversized limits, clock regression and expiry. Rust Clippy and the
+strict C build pass. Requester negotiation, operation transport and production
+gates remain open; these fixtures do not qualify trusted admission.
+
+Rust's `transaction::Transaction` and C's `sophia_pqt` produce bounded staging,
+submit and cleanup operations for the sole transport driver. Independent tests
+cover explicit retry, receipt/ack-gated release, deadlines and uncertain delivery.
+Both preserve Submitted custody when cleanup fails and leave EAGAIN retry to the
+caller. Rust's eleven requester state/startup/transaction tests pass; C's matching
+transaction suite passes both normally and with UBSan trap instrumentation.
+The ordinary UBSan build could not link the unavailable runtime; trap mode
+requires no runtime. Integrated journal/session driving and production gates
+remain missing; no complete requester capability is claimed.
+
+Rust's developing `requester::session::Session` and C's `sophia_pqr` integrate
+the handshake: one I/O owner drives the retained journal, explicit acks and
+transaction cleanup. Independent scripted peers pass successful negotiation,
+receipt-before-write ordering, refusal, wrong receipt and short ack at the
+minimum three request slots and five fids. Rust uses at least msize + 22 bytes
+of input capacity. C also tests discovery-to-session handoff and invalidates the
+consumed opening. Readiness requires negotiation ack and transaction cleanup.
+Rust drops the role connection on terminal failure; C requires the caller to
+close its fd. Subsequent request/grant/upload operations and production requester
+gates remain absent; these gaps block complete parity and release.
+
+## Request and grant correlation
+
+Rust `requester::transfer::Transfer` and C `sophia_pqf` now retain one request's
+expected grant without allocation. Allowed must match transfer ID, namespaces,
+kind, source generation, Limits' broker generation and owner-clock deadline.
+Zero-ID/generation/deadline requests remain representable for domain Denied.
+Terminal outcomes are single-use; Completed requires a previously issued End.
+Disconnect hides the grant but preserves the last known state, including an
+End whose execution is uncertain. It does not manufacture Revoked or Completed.
+
+Three Rust tests and an independent C suite pass every grant-field mismatch,
+domain denial, disconnect, premature completion and repeated terminal outcomes.
+Strict Rust Clippy and the strict C build pass. These are passive correlation
+components; session request admission, grant routing and upload ownership still
+need integration and production qualification. A generic Allowed does not
+promise that the selected transfer kind has an implemented executor.
+
+## Session request integration
+
+Both sessions now admit typed requests with increasing submission IDs and
+connection-scoped request handles. They correlate Decision and terminal events
+before exposing state, preserve an original grant when a duplicate request is
+denied, and retain terminal results until their journal records are acknowledged
+and the caller releases them. Fixed storage holds 64 grants plus one pending or
+denied request; retained terminal results occupy slots until released.
+
+Independent socket peers pass allowed/denied requests, duplicate denial,
+revocation, broker-generation mismatch and premature Completed rejection.
+Rust's four session tests and C's eleven session schedules pass at minimum
+transport limits; strict Clippy and the C build pass. Begin/upload/End
+and production requester qualification remain open. Earlier component-only
+limits above describe their checkpoints, not the current session coverage.
+
+Both sessions now submit Cancel for an Allowed grant before End issuance, with
+explicit retry and retained custody. Submitted does not imply Revoked; only the
+correlated outcome changes that observation. Repeated local cancellation refuses.
+Request handles include SDK issuer identity as well as wire epoch and submission:
+a unique process-local Rust issuer or C's immovable session address. Matching
+wire epochs do not let another live session's handle select a transfer. C session
+storage must not be reinitialized while its handles remain live. Independent
+tests cover cancellation and foreign-handle refusal; no production claim yet.
+
+## Upload writer component
+
+Rust `requester::upload::Upload` and C `sophia_pqu` implement one upload/0
+writer after correlated Begin custody. They honor iounit and msize, account only
+exact successful writes, and retain the open writer after the final byte.
+Explicit cleanup follows End custody or terminal settlement; a clunk alone is
+not a transfer outcome. A premature clunk can abandon and revoke the upload.
+
+Rust takes the caller's Vec and returns its original storage; C borrows immutable
+caller storage. No separate payload allocation or copy occurs in this component.
+Independent tests pass empty, one-byte and 64-KiB payloads, bounded writes,
+storage identity, partial walk, short writes, ESTALE, deadlines and clunk failure.
+Strict Clippy and C builds pass. Begin/End session integration, in-flight
+revocation/cancellation and production qualification remain open.
+
+Rust now integrates Begin/upload/End in the session. Its fifth session test
+passes empty and 64-KiB payloads, exact End length, writer retention through End,
+Completed routing and original-buffer return. Upload requires four request slots
+and six fids. `transaction_ready` separates command admission from negotiated
+session readiness. Begin consumes its Vec even on admission error, as documented;
+this ownership limitation remains subject to the release audit.
+
+Both standalone writers support terminal settlement while a write is pending:
+drain its reply, accept ESTALE for the ended binding, then clunk without another
+write. Independent component tests pass.
+
+Both sessions now integrate Begin/upload/End and transaction readiness. C's
+borrowed payload remains valid through writer cleanup; Rust returns the original
+Vec. Independent socket tests pass empty and 64-KiB uploads and cancellation
+while the completed writer is held open. Cancel preserves Allowed until the
+correlated Revoked event; cleanup then releases the upload storage. Rust's six
+session tests and C's fifteen schedules pass. Upload needs four request slots
+and six fids in either SDK.
+
+Both sessions also pass revocation during the first pending payload write. The
+peer withholds that reply until the Revoked record is acknowledged, then returns
+ESTALE. It rejects another payload write and verifies writer clunk before close.
+The caller recovers its storage and retains Revoked. Rust's seven session tests
+and C's sixteen schedules pass.
+
+A separate control returns ESTALE with no terminal event. Both sessions fail
+closed, preserve the last Allowed observation, hide its grant and release
+payload storage after connection closure. They neither replay nor fabricate
+Revoked. Rust's eight session tests and C's seventeen schedules pass. This
+qualifies safe failure, not connection-preserving recovery when ESTALE precedes
+a later terminal event; that recovery behavior remains for the ownership audit.
+
+Cancellation during an outstanding write, disconnect around End
+custody and production requester gates remain open. These scripted-peer results
+do not establish complete portal parity or a measured performance improvement.
+
+## Production requester checkpoint
+
+Both independent requester peers now pass Sophia's
+`external_sdk_requester_production_lifecycle` gate against the real
+`PortalFileExport`. Each runs completion, executor failure, denial and
+cancellation with empty and 64-KiB payloads. Two further modes close before End
+and lose the outcome after the executor takes End, for twelve cases per SDK.
+The first executes nothing; the second executes exactly once but leaves the
+client at disconnected EndIssued, never a fabricated Completed or Revoked.
+A thirteenth case cancels a partially acknowledged 64-KiB upload, with a
+one-byte dispatch budget making the intermediate state observable. Both peers
+assert that acknowledged bytes are greater than zero and less than the payload,
+then require Revoked and zero executions. This covers partial-upload
+cancellation, not a controlled ordering of a withheld write reply.
+Both return/release payload storage. The harness waits for transport retirement
+and rejects any late execution after peer exit. It admits only the supplied
+socket, verifies exact execution bytes and counts, and requires no execution
+for denial or cancellation. It uses owner-supplied test authority, not a desktop
+or recipient frontend; real application execution is outside this gate.
+
+Rust peer SHA-256:
+`6d4cbc96f611bdd946d7b322c3599f6ee93f3557076de832ca8a00cb28390db9`.
+C peer SHA-256:
+`955e6ea95b278fb2e0a02b891156f7ff520d8d4cb0e829ea77a4ce64633449c0`.
+These are uncommitted builds over Rust base `4c18605` and C base `2d719d5`;
+they are not release identities. The Sophia harness is uncommitted over
+`519f07fd1`. Rust peer Clippy and Sophia's 17 ordinary portal-file tests pass.
+Production race/recovery qualification, the cross-role audit and publication
+remain open; the earlier statement that no requester production evidence exists
+is superseded by this checkpoint.
+
+## Requester API comparison
+
+These entry points use the pinned requester revision 1. C names below have the
+`sophia_pqr_` prefix; Rust methods belong to `requester::session::Session`.
+
+| Operation | C | Rust | Ownership and evidence |
+| --- | --- | --- | --- |
+| Discovery and negotiation | `sophia_pqo_*`, `init` | `startup::Opening`, `new` | Supplied admitted root; neither discovers authority from attach strings. Production peers exercise both. |
+| Readiness and bounded service | `ready`, `transaction_ready`, `dispatch`, `deadline`, `wants_write` | `ready`, `transaction_ready`, `dispatch`, `deadline`, `io_interest`, `fd` | C retains the caller's wire/fd. Both take caller-monotonic milliseconds and byte budgets. |
+| Journal retention | `event`, `consume`, `acknowledge` | Same method names | Consumption is local; acknowledgement releases server retention, not semantic custody. |
+| Requests and results | `request`, `transfer`, `release_transfer` | Same method names | Connection-scoped handles, exact grant correlation, acknowledged terminal results before release. C sessions must not move or be reinitialized with live handles. |
+| Upload lifecycle | `begin`, `upload_written`, `upload_ready`, `end`, `release_upload` | `begin`, `upload_written`, `upload_ready`, `end`, `take_upload` | C borrows immutable bytes; Rust owns the original Vec. Both retain storage through cleanup. Rust consumes the Vec on local admission error: unresolved release-audit limitation. |
+| Cancellation | `cancel` | `cancel` | Before End issuance only; neither Submitted nor local cancellation invents Revoked. Held and partial upload production cases pass. |
+| Explicit retry | `retry`; transaction custody in retained state | `retry`, `custody` | Same immutable submission after EAGAIN; no reconnect replay. Independent session tests qualify End retry with empty/64-KiB uploads. |
+| Local close | `close`, then caller closes fd | `close` closes owned pipeline | Preserve known observations, hide grants, release storage; real pre-End and post-custody disconnect cases pass. |
+
+Both session peers now refuse the first End with EAGAIN, wait for explicit
+retry, compare the complete staged candidate and submit control byte for byte,
+then publish one Completed. Sixteen intervening dispatch calls leave custody
+Queued and the transfer conservatively EndIssued. Nine Rust session tests and
+nineteen C schedules pass. This does not claim that EndIssued proves execution,
+or provide cancellation/abandonment of a refused End on a live connection.
+
+Rust now also offers `begin_buffer(&mut Vec)`: local rejection preserves bytes,
+pointer and capacity; admission takes the original storage without a copy or
+allocation. After admission, recover it through `take_upload`, including after
+a transport error. The original consuming `begin` remains a convenience API.
+C's existing borrowed Begin already preserves caller storage on rejection.
+Independent session tests cover deadline rejection, successful reuse and a
+second Begin refused while busy. Both production peers now exercise rejected
+Begin followed by successful use of the same storage; thirteen cases each pass.
+Strict Rust Clippy passes all portal-client targets. This resolves the earlier
+failed-admission storage gap without requiring identical memory models.
+
+The table does not close the recovery audit: terminal-error ordering still
+needs explicit release decisions and
+paired evidence. Broker coverage and foreign-binding qualification remain
+separate t333 requirements.
+
+## Foreign binding and recovery audit
+
+C's `make check-binding` compiles and runs
+`src/tests/requester_binding_smoke.nim` using imported public C declarations
+and the two native static libraries. Empty, one-byte and 64-KiB payloads pass:
+caller-owned state has the header's layout, writes borrow the original buffer,
+held storage survives until clunk, and rejected deadlines leave caller bytes
+intact. No Rust runtime, Sophia checkout or C adapter is needed. This meets the
+thin foreign-binding smoke requirement; it is not a full Nim role client.
+The full C `make check` and both Rust portal crates' tests also pass.
+
+Requester recovery is explicit: neither SDK reconnects or replays. ESTALE before
+a correlated outcome closes the session and leaves the last observation
+unchanged; ESTALE after terminal settlement drains the outstanding operation
+and cleans up the writer. A disconnected EndIssued is unknown execution, even
+when the owner later succeeds. These paired behaviors obey the pinned rule that
+disconnect cannot initiate execution or replay. They deliberately do not promise
+connection-preserving recovery from arbitrary remote errors. C callers must
+close the supplied fd before releasing borrowed payload storage on failure.
+
+End EAGAIN can be retried with its retained identity. Neither session currently
+offers live cancellation of that refused End; close remains available without
+inventing a remote outcome. Preserve this limit in the final role audit rather
+than treating EndIssued as proof of execution.

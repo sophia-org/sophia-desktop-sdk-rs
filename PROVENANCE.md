@@ -1,5 +1,32 @@
 # Provenance
 
+## Portal and broker publication candidate, 2026-10-16
+
+This series adds native portal requester sessions and broker sessions in both
+SDKs, and joins recipient capture/frame operations to their session drivers.
+The broker codecs follow the pinned Sophia `519f07fd1` contract; no legacy IPC
+framing or runtime owner is imported. C remains independently usable without
+Rust. The complete Rust workspace and C check suites pass, as does the Nim
+requester binding smoke test. Detailed paired scenarios and exact export-peer
+hashes are in API-PARITY.md and PORTAL-PARITY.md.
+
+The broker's shared-core export fixtures cover negotiation, retirement and
+atomic two-row disclosure responses. Both peers also pass the protected variant
+using actual ProcessSupervisor evidence and Bubblewrap 0.13.0; current executable
+hashes are in API-PARITY.md. Production reducer integration and the live migration
+remain open in Sophia t314.
+These additions do not establish full t333 parity or change installed SDK pins.
+Earlier checkpoints below describe their source state at the time.
+
+## t333 broker discovery and incoming events
+
+The independent C and Rust discovery/event codecs follow the designed
+`sophia-broker-files-v1.kdl` and markdown copied from signed Sophia
+`519f07fd1b6db3a665ae1e74368a3d2e234cbf9c`. No broker runtime or legacy IPC
+framing is imported. The manifest pins the exact source bytes. These passive,
+allocation-free decoders are not a broker client or an implemented export;
+response encoding and request correlation remain next.
+
 ## t333 administrative info decoder
 
 The new passive info decoder is implemented from the pinned

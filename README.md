@@ -6,6 +6,10 @@ Sophia checkout to build.
 
 | Crate | What it is |
 | --- | --- |
+| `sophia-broker-protocol` | Native metadata broker request, response and custody records. |
+| `sophia-broker-client` | Developing caller-driven broker session with retained requests and atomic two-row responses; live broker migration remains open. |
+| `sophia-portal-protocol` | Portal recipient and requester file records. |
+| `sophia-portal-client` | Recipient capture/frame and transfer sessions, plus bounded requester uploads and outcome tracking. |
 | `sophia-admin-protocol` | Passive administrative info, catalog, invocation and status codecs. |
 | `sophia-admin-client` | Developing administrative session with retained catalogs, command custody and caller-driven status snapshots; production qualification remains open. |
 | `sophia-9p-records` | 9P2000.L value records (tags, fids, qids, wire errno, requests, replies), shared with Sophia's server core. |
@@ -25,7 +29,17 @@ Sophia checkout to build.
 Shell, WM and output have native clients; their release qualification differs.
 The lock provider now has an experimental session against its draft contract.
 Administration has a developing session on a versioned pipeline. [API parity](API-PARITY.md) records
-the comparison, evidence and remaining gaps.
+the comparison, evidence and remaining gaps. [Portal parity](PORTAL-PARITY.md)
+records the recipient and requester scenarios and their qualification limits.
+
+The broker client starts from an exclusively owned, quiescent 9P pipeline and
+admitted root: drive `startup::Opening`, transfer its `Opened` result, then drive
+`session::Session`. It retains one request independently of journal consumption.
+Respond once, acknowledge events explicitly and retry only when requested by the
+application; disconnect never reconnects or replays. The supplied-root constructor
+does not authenticate the caller. The `broker_peer` example demonstrates the
+lifecycle against Sophia's generic export and protected-launch gates. Production
+broker migration and the legacy transport comparison remain separate gates.
 
 The WM protocol crate includes negotiation, profile handoff, snapshots,
 configuration, projection, Cycle events and outcome records. Its schema and

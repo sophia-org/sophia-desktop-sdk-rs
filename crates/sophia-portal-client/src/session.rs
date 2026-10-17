@@ -1,6 +1,10 @@
-//! Shared recipient transport: one retained watch and one bounded snapshot.
-//! Frame/capture composition remains separate. No automatic recovery or replay.
+//! One watch beside a snapshot, capture request or frame read.
+//! No automatic recovery or replay.
 use crate::{
+    capture::Custody,
+    capture_request::Exchange,
+    frame::Exchange as FrameExchange,
+    protocol::{CaptureRequest, CaptureState, FrameInfo, RequestCapability},
     snapshot::{Fetch, File, Operation},
     startup::Opened,
 };
@@ -16,6 +20,8 @@ pub enum Error {
     Closed,
     Wire(PipelineError),
     Snapshot(crate::snapshot::Error),
+    Capture(crate::capture_request::Error),
+    Frame(crate::frame::Error),
 }
 impl From<PipelineError> for Error {
     fn from(e: PipelineError) -> Self {
@@ -54,6 +60,8 @@ pub struct Session<'a> {
     opened: Option<Opened>,
     watch: Option<Watch>,
     fetch: Option<Fetch<'a>>,
+    capture: Option<Exchange>,
+    frame: Option<FrameExchange>,
     fetch_tag: Option<Tag>,
     file: Option<File>,
     now: u64,
@@ -79,6 +87,8 @@ impl<'a> Session<'a> {
             opened: Some(opened),
             watch: None,
             fetch: None,
+            capture: None,
+            frame: None,
             fetch_tag: None,
             file: None,
             now,
@@ -89,6 +99,12 @@ impl<'a> Session<'a> {
         self.error.clone().map_or(Ok(()), Err)
     }
     fn fail(&mut self, e: Error) -> Error {
+        if let Some(c) = &mut self.capture {
+            c.fail(crate::capture_request::Error::Closed);
+        }
+        if let Some(f) = &mut self.frame {
+            f.fail(crate::frame::Error::Closed);
+        }
         self.opened.take();
         self.error.get_or_insert(e).clone()
     }
@@ -114,7 +130,8 @@ impl<'a> Session<'a> {
             .is_some_and(|w| w.cancel && w.stage == Stage::Read && w.flush.is_none());
         Ok(interest)
     }
-    /// Absolute wake deadline. A missed cleanup deadline terminates the role.
+    /// Next absolute wake time, including paced capture-status observation.
+    /// Dispatch when due even if the descriptor is idle.
     pub fn deadline(&self) -> Option<u64> {
         if self.error.is_some() {
             return None;
@@ -125,6 +142,8 @@ impl<'a> Session<'a> {
             .map(|w| w.deadline)
             .into_iter()
             .chain(self.fetch.as_ref().and_then(Fetch::deadline))
+            .chain(self.capture.as_ref().and_then(Exchange::next_wake))
+            .chain(self.frame.as_ref().and_then(FrameExchange::deadline))
             .min()
     }
     pub fn watch(&mut self, deadline: u64) -> Result<(), Error> {
@@ -182,7 +201,7 @@ impl<'a> Session<'a> {
     }
     pub fn snapshot(&mut self, file: File, deadline: u64) -> Result<(), Error> {
         self.live()?;
-        if self.fetch.is_some() {
+        if self.fetch.is_some() || self.capture.is_some() || self.frame.is_some() {
             return Err(Error::Busy);
         }
         self.fetch = Some(Fetch::new(file, self.now, deadline)?);
@@ -191,7 +210,7 @@ impl<'a> Session<'a> {
     }
     pub fn transfer(&mut self, storage: &'a mut [u8], deadline: u64) -> Result<(), Error> {
         self.live()?;
-        if self.fetch.is_some() {
+        if self.fetch.is_some() || self.capture.is_some() || self.frame.is_some() {
             return Err(Error::Busy);
         }
         self.fetch = Some(Fetch::transfer(storage, self.now, deadline)?);
@@ -204,6 +223,103 @@ impl<'a> Session<'a> {
         } else {
             self.fetch.as_ref().and_then(Fetch::result)
         }
+    }
+    /// One foreground capture request beside the retained watch. Reserve a
+    /// serial above the recipient's durable high-water mark before calling;
+    /// rejection or connection loss never permits replay. Storage is inline.
+    pub fn capture(
+        &mut self,
+        request: CaptureRequest,
+        previous_serial: u64,
+        deadline: u64,
+    ) -> Result<(), Error> {
+        self.live()?;
+        if self.fetch.is_some() || self.capture.is_some() || self.frame.is_some() {
+            return Err(Error::Busy);
+        }
+        if self.opened.as_ref().ok_or(Error::Closed)?.info.request
+            != RequestCapability::OutputCaptureV1
+        {
+            return Err(Error::Capture(crate::capture_request::Error::Unsupported));
+        }
+        self.capture = Some(
+            Exchange::new(request, previous_serial, self.now, deadline).map_err(Error::Capture)?,
+        );
+        self.drive().map_err(|e| self.fail(e))
+    }
+    /// Custody remains inspectable after role failure; it does not grant pixels.
+    pub fn capture_custody(&self) -> Option<Custody> {
+        self.capture.as_ref().map(Exchange::custody)
+    }
+    /// Retained historical status and reserved serial, never a frame grant.
+    pub fn capture_result(&self) -> Option<(CaptureState, u64)> {
+        if self.error.is_some() {
+            return None;
+        }
+        let c = self.capture.as_ref()?;
+        Some((c.outcome()?, c.serial()))
+    }
+    pub fn release_capture(&mut self) -> Result<(), Error> {
+        self.live()?;
+        if self.capture_result().is_none() {
+            return Err(Error::Busy);
+        }
+        self.capture = None;
+        Ok(())
+    }
+    /// Retain metadata and pixels beside a watch. Six requests reserve four
+    /// pixel reads plus watch/flush; four fids keep root, watch and both objects.
+    /// Reuses the Vec, growing at most once after validated metadata.
+    pub fn frame(&mut self, storage: Vec<u8>, deadline: u64) -> Result<(), Error> {
+        self.live()?;
+        if self.fetch.is_some() || self.capture.is_some() || self.frame.is_some() {
+            return Err(Error::Busy);
+        }
+        let o = self.opened.as_ref().ok_or(Error::Closed)?;
+        let w = &o.pipeline;
+        // Four bounded Rreads plus the watch/error and flush replies. The
+        // existing 60 KiB payload cap keeps default pipeline storage sufficient.
+        let input = 4 * w.msize().min(crate::frame::READ_CHUNK + 11) as usize + 22;
+        if w.limits().max_fids < 4
+            || w.limits().max_outstanding < 6
+            || w.limits().max_buffered_input < input
+        {
+            return Err(Error::Invalid);
+        }
+        self.frame =
+            Some(FrameExchange::new(storage, w.msize(), self.now, deadline).map_err(Error::Frame)?);
+        self.drive().map_err(|e| self.fail(e))
+    }
+    /// Received scratch bytes do not establish image validity.
+    pub fn frame_received(&self) -> u64 {
+        self.frame.as_ref().map_or(0, FrameExchange::received)
+    }
+    /// Exposed only after exact payload, EOF, metadata recheck and both clunks.
+    pub fn frame_result(&self) -> Option<(FrameInfo, &[u8])> {
+        if self.error.is_some() {
+            return None;
+        }
+        self.frame.as_ref()?.result()
+    }
+    /// Release the foreground slot and move the completed buffer without copying.
+    pub fn take_frame(&mut self) -> Result<(FrameInfo, Vec<u8>), Error> {
+        self.live()?;
+        if self.frame_result().is_none() {
+            return Err(Error::Busy);
+        }
+        self.frame
+            .take()
+            .ok_or(Error::Invalid)?
+            .finish()
+            .map_err(Error::Frame)
+    }
+    /// Recover storage only after terminal role failure or explicit close.
+    /// Bytes remain scratch; no validity claim survives failure.
+    pub fn take_frame_scratch(&mut self) -> Result<Vec<u8>, Error> {
+        if self.error.is_none() {
+            return Err(Error::Busy);
+        }
+        Ok(self.frame.take().ok_or(Error::Invalid)?.into_scratch())
     }
     pub fn release_snapshot(&mut self) -> Result<(), Error> {
         self.live()?;
@@ -229,7 +345,11 @@ impl<'a> Session<'a> {
     }
     pub fn finish(mut self) -> Result<Opened, Error> {
         self.live()?;
-        if self.watch.is_some() || self.fetch.is_some() {
+        if self.watch.is_some()
+            || self.fetch.is_some()
+            || self.capture.is_some()
+            || self.frame.is_some()
+        {
             return Err(Error::Busy);
         }
         let mut o = self.opened.take().ok_or(Error::Closed)?;
@@ -243,8 +363,20 @@ impl<'a> Session<'a> {
         }
         self.live()?;
         self.now = now;
-        if self.deadline().is_some_and(|d| now >= d) {
+        if self
+            .watch
+            .as_ref()
+            .is_some_and(|w| w.stage != Stage::Ready && now >= w.deadline)
+            || self
+                .fetch
+                .as_ref()
+                .and_then(Fetch::deadline)
+                .is_some_and(|d| now >= d)
+        {
             return Err(self.fail(Error::Deadline));
+        }
+        if let Err(e) = self.drive() {
+            return Err(self.fail(e));
         }
         let mut budget = IoBudget::new(bytes);
         for _ in 0..32 {
@@ -280,6 +412,12 @@ impl<'a> Session<'a> {
     fn drive(&mut self) -> Result<(), Error> {
         let o = self.opened.as_mut().ok_or(Error::Closed)?;
         let w = &mut o.pipeline;
+        if let Some(f) = &mut self.frame {
+            f.step(self.now, w, o.root).map_err(Error::Frame)?;
+        }
+        if let Some(c) = &mut self.capture {
+            c.step(self.now, w, o.root).map_err(Error::Capture)?;
+        }
         if let Some(v) = &mut self.watch
             && v.tag.is_none()
             && v.flush.is_none()
@@ -318,6 +456,16 @@ impl<'a> Session<'a> {
         Ok(())
     }
     fn accept(&mut self, tag: Tag, reply: Reply) -> Result<(), Error> {
+        if let Some(f) = &mut self.frame
+            && f.matches(tag)
+        {
+            return f.reply(tag, reply).map_err(Error::Frame);
+        }
+        if let Some(c) = &mut self.capture
+            && c.matches(tag)
+        {
+            return c.reply(tag, reply).map_err(Error::Capture);
+        }
         if self.fetch_tag == Some(tag) {
             self.fetch_tag = None;
             self.fetch

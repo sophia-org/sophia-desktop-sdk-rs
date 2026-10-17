@@ -1,5 +1,226 @@
 # C and Rust SDK API parity
 
+## Current publication candidate, 2026-10-16
+
+Both native peers now pass `external_sdk_protected_broker_lifecycle` in Sophia's
+`broker_sdk` harness. Each launches through ProcessSupervisor/Bubblewrap with
+MetadataBroker evidence and exact kernel peer admission, then completes native
+negotiation, single-row retirement and two-row disclosure exchanges, receipt
+acknowledgement and cleanup. The original socketpair gate also passes. These are
+generic peers; the production reducer and live Session migration remain open.
+Bubblewrap is 0.13.0. The peer explicitly uses a supplied socket path when
+`SOPHIA_BROKER_9P_SOCKET` is set, otherwise supplied stdin; a failed path never
+falls back. Strict peer/harness Clippy and C compilation pass.
+
+Current peer SHA-256: C
+`5bafac353d5f1d64642412627a3b02f737d7edd0e04384164146ec19cc3e60c9`;
+Rust `b10603e16a7a8885bc30b7167c538a8b5a8b1e2a0e45ba8d469b88307fb5dd58`.
+The peer changes and Sophia harness remain uncommitted.
+
+Portal recipient capture/frame integration, portal requester sessions and broker
+sessions are ready for signed source publication. Both complete SDK test suites,
+the Nim requester binding smoke test, Rust all-target strict Clippy, formatting
+and contract hash checks pass. The shared-core broker fixtures qualify the
+listed exchanges, not the unfinished live migration.
+Full t333 closure and Sophia pin adoption remain separate gates. The checkpoints
+below preserve earlier evidence and their original qualification limits.
+
+## Broker discovery checkpoint
+
+C and Rust broker peers now pass the shared-core export gate
+`cargo test -p sophia-runtime --test broker_sdk -- --ignored`, with
+`SOPHIA_BROKER_SDK_PEER` naming each independent executable. Both exercise native
+startup, negotiation, single-row retirement and two-row disclosure responses,
+acknowledgement and cleanup. The owner checks one atomic effect commit. The
+socketpair fixture uses synthetic protection evidence; it does not prove protected
+launch or foreign-process admission. Production selection remains legacy.
+
+Tested executable SHA-256: C `524fe2f37617c536743dd2c05253a8f26f214d55460088b35b02a35eedd47cbb`;
+Rust `9aff103202df64216cd94a1d1c6f84a6cf037bb3a9cf5319fde3df7143af4938`.
+Sources remain uncommitted in the existing SDK worktrees and Sophia.
+
+
+Broker response checkpoint (2026-10-16): both SDKs pass 12 independent
+socket scenarios. New coverage preserves a pending label containing NUL, newline
+and multibyte UTF-8 after journal consumption. Both SurfaceAdmitted and
+SetDisclosure two-row responses reject a bad second row locally, then accept the
+corrected pair with submission ID two. The peer receives one complete 448-byte
+candidate, not separate row submissions. Strict Rust Clippy passes.
+
+Next: t314's production broker export and runtime migration. Its acceptance
+requires every existing broker path through files, no legacy production caller,
+a compiled foreign-attach negative, and latency/CPU/copied-byte comparison before
+legacy retirement. The owning plan is `jsschoen` section t314; existing Session
+integration is `crates/sophia-session/src/live_session/metadata_broker.rs`.
+The client fixtures do not prove those server properties. Changes remain
+uncommitted, and the installed desktop and SDK pins remain unchanged.
+
+
+Broker deadline, loss and retry checkpoint (2026-10-16): both SDKs now
+pass nine independent socket schedules. New cases prove that an acknowledged
+request still expires at its response deadline, loss after response submission
+leaves custody Unknown, and explicit EAGAIN retry preserves every candidate and
+control byte. The deadline test first drains the journal ack and prior cleanup,
+so an unrelated handshake or ack timer cannot satisfy it. Strict Rust Clippy
+passes. Next: retained-label and two-row integrated response coverage, then the
+production broker migration and its protected-admission and measurement gates.
+No production qualification is claimed; changes remain uncommitted.
+
+
+Broker session failure checkpoint (2026-10-16): both independent socket
+fixtures now pass six schedules: the full lifecycle, stale receipt epoch,
+contradictory negotiated limits, refusal through terminal acknowledgement, short
+ack reply and wrong receipt ID. Stale or uncorrelated receipts leave custody
+unknown; errors after a valid receipt preserve Submitted. Both sessions stop
+being ready on failure. C callers close the borrowed fd; Rust closes its owned
+connection. Test peers accept EOF/reset and broken pipe during deliberate closure;
+all protocol and custody assertions remain required. Strict Rust Clippy passes.
+
+Next: response timeout and connection-loss schedules, immutable EAGAIN retry,
+label retention and two-row integrated responses. Production export, protected
+admission and comparative measurements remain open under t314. No production
+qualification or publication is claimed; all changes remain uncommitted.
+
+
+Paired broker session checkpoint (2026-10-16): C `sophia_br` now supplies
+the integrated session counterpart to Rust `session::Session`. Both retain one
+request in fixed storage independently of journal consumption, route all replies
+through one connection driver, encode responses once, and wait for receipt ack
+before transaction cleanup. C borrows the transport and requires fd closure on
+terminal failure; Rust owns it. Neither reconnects or replays work.
+
+Independent C and Rust socket fixtures pass negotiation, request retention,
+a 448-byte response, acknowledgement and both transaction clunks. All 16 Rust
+broker client tests and eight protocol tests pass. C's new session compiles under
+strict warnings and passes its lifecycle test. These fixtures do not yet qualify
+failure behavior or the production export. Next: matched refusal, loss, stale
+epoch, deadline, malformed-event and two-row session schedules. Then t314 still
+requires the production migration, protected admission and comparative measurements.
+Changes remain uncommitted; SDK pins and the installed desktop are unchanged.
+
+
+Rust broker session checkpoint (2026-10-16): `session::Session` now owns
+the pipeline and routes startup, journal, ack and transaction replies. It copies
+one pending request into fixed storage so journal consumption cannot invalidate
+its label; response construction encodes borrowed rows once. Dispatch shares a
+bounded I/O budget. A literal socket fixture passes negotiation, request delivery,
+response submission, acknowledgement and both transaction clunks. Strict Clippy
+passes. This is one happy-path fixture, not production qualification.
+
+The C integrated session is still missing. Its independently tested startup,
+journal, transaction and ordering components are ready to wire together next.
+Do not claim broker session parity, publish this capability or adopt SDK pins
+until C implements it and both pass equivalent fault schedules and production
+export gates. Rust also still needs refusal, loss, stale epoch, response deadline,
+malformed event and two-row integrated tests. t314's export, protected admission
+and comparative measurements remain open.
+
+
+Broker ordering checkpoint (2026-10-16): C `sophia_bp` and Rust
+`phase::Ordering` now check handshake receipt ordering, negotiated limits,
+one pending request, increasing request IDs and response receipt correlation.
+Refusal keeps a fixed deadline from local observation; acknowledging only the
+preceding receipt cannot extend it. The server owns publication-time enforcement.
+Paired tests and strict Rust Clippy pass. This component assumes journal and
+transaction validation; it does not own request data, socket I/O, response timers
+or ack/cleanup pacing. Those remain work for the integrated session. Production
+migration, protected admission and measurement gates remain open under t314.
+
+
+Broker transaction drivers now stage Negotiate and complete 448-byte
+ResponseSet records, submit explicitly and clunk both fids after receipt
+acknowledgement. C `sophia_bt` and Rust `transaction::Transaction` use fixed
+candidate storage and borrow operation bytes; they neither poll nor own the
+transport. One session driver must match tags and close on terminal failure.
+The original deadline includes cleanup. The assembly deadline starts when the
+first write enters the transport and never extends with progress. EAGAIN waits
+for explicit retry of the same control. Connection loss preserves known custody.
+
+Thirteen Rust broker client tests and the independent C transaction suite pass,
+including fragmented staging for both record sizes, retry, receipt/write ordering,
+acknowledgement before release, assembly expiry, disconnect and failed or timed-out
+cleanup. Strict Rust Clippy passes. These are component tests, not production
+export evidence. Next: integrate startup, journal and transactions into the broker
+session, then qualify against t314's production migration and admission gates.
+
+
+Both SDKs now discover broker metadata on the caller-admitted root: Rust
+`startup::Opening` and C `sophia_bo`. They retain the connection, read exact API
+and 72-byte Limits records through EOF, and require successful clunks before
+handoff. Fixed metadata storage and bounded dispatch avoid per-fragment role
+allocations. The caller retains the admission authority channel; discovery does
+not authenticate or negotiate. Rust owns and closes failed connections; C borrows
+the wire and requires its caller to close the fd on failure.
+
+Paired socket fixtures cover seven-byte fragments, one-byte I/O budgets,
+incorrect version/epoch, directory replies, truncated/trailing records, failed
+clunks, deadlines and clock regression. Rust's nine broker client tests, the C
+startup suite and strict Rust Clippy pass. Transaction I/O, session integration,
+t314's production export, protected admission and comparative measurements remain
+open. No SDK pin or installed desktop changed.
+
+Both SDKs now decode the designed metadata-broker API descriptor and Limits:
+C `sophia_bf_decode_api/limits` and Rust `sophia-broker-protocol`.
+These allocation-free decoders validate exact API/role identity, canonical
+nonzero epochs, envelope identity, reserved fields and all advertised bounds.
+C leaves outputs unchanged on failure. Independent literal, truncation,
+overflow and boundary tests pass; strict Rust Clippy passes.
+
+The KDL is copied from signed Sophia
+`519f07fd1b6db3a665ae1e74368a3d2e234cbf9c`, SHA-256
+`d0e224ee984a0ce3efe8aee209af1a9fff6bb2997362f1586a346e1fa7c78cb8`,
+and is included in `spec/SHA256SUMS`. The markdown remains at the same source.
+Both now also decode Negotiated, Refused, Submitted and all five BrokerRequest
+kinds. C `sophia_bf_decode_event` and Rust `decode_event` borrow label text
+from the input record, preserve absent/empty/control labels and accept zero
+surface/candidate-generation values for the reducer's domain denials.
+Envelope classes, fixed padding, strict booleans, UTF-8 and per-kind unused
+fields are validated without allocation. Four Rust tests and independent C
+discovery/event suites pass; C failure leaves its output unchanged.
+
+Both now encode one atomic ResponseSet with fixed storage, validating all rows
+before touching output. Request ID/kind are taken from the supplied pending
+request; surface, candidate-generation, attention and permitted row/rejection
+relationships are checked. Both two-row lowering shapes, absent/empty/control
+labels, present-zero icons and grant target generations have independent tests.
+A failed second row leaves the entire output unchanged. Six Rust tests and
+three C broker suites pass; strict Clippy passes. Current owner state, retained
+generation/grant and enqueue-capacity validation remain server responsibilities.
+
+Both now encode Negotiate, submit and cumulative ack controls. Unsupported or
+inverted revision ranges remain representable for server Refused. Encoders
+reject zero identities, invalid declared lengths and short output buffers before
+writing; bytes beyond the record stay untouched. Eight Rust tests and four
+independent C broker suites pass, with strict Clippy clean.
+
+Broker submission components now retain a fixed 448-byte candidate and 24-byte
+submit control: Rust `sophia-broker-client::Submission` and C
+`sophia_bs_submission`. Explicit same-ID retry, both receipt/write orders,
+acknowledgement before release, short/failed writes, clock regression and
+disconnect custody pass paired tests. Borrowed request/label inputs are encoded
+at construction; no later caller lifetime or allocation is needed. Event values
+now retain the validated epoch for receipt correlation. The C event struct is
+unreleased and its layout changed; rebuild clients/bindings before adoption.
+
+Four Rust custody tests plus eight protocol tests and the independent C custody
+suite pass; strict Clippy passes. These components share no portal authority or
+runtime dependency.
+
+Both now retain fragmented/coalesced events in a fixed 512-byte journal:
+Rust `Journal` and C `sophia_bj`. Event labels borrow the head until consume;
+reads pause while it is held, and buffer compaction occurs only when needed.
+Acknowledgements freeze their sequence/bytes until the write reply; later
+consumption cannot alter them. Three Rust journal tests and the independent C
+suite pass borrowed pointer lifetime, fragmentation, compaction, frozen acks,
+gap/stale-epoch/malformed-text refusal, clock bounds and deadline expiry.
+The local timer begins at observation, not server publication; the separate
+Refused drain timer remains session work. No allocation or performance gain is
+claimed beyond the fixed-storage implementation.
+
+Startup, transaction I/O and full broker sessions remain absent.
+t314 still requires protected admission, atomic
+responses, broker migration and comparison measurements before retirement.
+
 Matrix revision 48, 2026-10-16. Sophia t333 owns the complete parity gate.
 This matrix maps shell event-loop and content-admission operations; it is not a complete role
 inventory. Contract inputs are the pinned API-1 shell files and WM custody

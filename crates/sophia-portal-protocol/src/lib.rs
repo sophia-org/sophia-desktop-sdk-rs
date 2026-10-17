@@ -1,4 +1,4 @@
-//! Passive recipient records. Decoding establishes neither a grant nor presentation.
+//! Passive portal records. Decoding establishes neither authority nor presentation.
 mod capture;
 pub use capture::*;
 mod discovery;
@@ -68,3 +68,5 @@ pub fn decode_frame_info(bytes: &[u8]) -> Result<FrameInfo, RecordError> {
         image_bytes,
     })
 }
+
+pub mod requester;
