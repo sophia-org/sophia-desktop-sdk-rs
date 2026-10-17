@@ -275,7 +275,13 @@ impl Owner {
             self.close_channel();
             return;
         }
-        let Some(i) = self.offers.iter().position(|o| o.id == id) else {
+        // Accepted sealed backing is a resource lease, no longer a live source
+        // offer after SourceReleased. Late packets must not fault that resource.
+        let Some(i) = self
+            .offers
+            .iter()
+            .position(|o| o.id == id && o.phase != Phase::Accepted)
+        else {
             return;
         };
         if self.offers[i].phase != Phase::Admitted {
@@ -529,6 +535,10 @@ fn journal_loss_and_retirement_do_not_invent_release() {
         owner.start_worker(2);
         owner.worker_returns(2);
         owner.offers[0].leases = 1;
+        send(&tx, &packet(role, 2), &fd);
+        owner.receive(&rx);
+        assert_eq!(owner.faults, 0);
+        assert_eq!(owner.events.len(), 1);
         owner.cancel(2);
         assert_eq!(owner.offers.len(), 1);
         assert_eq!(io::pwrite(&fd, b"X", 0), Err(io::Errno::PERM));
