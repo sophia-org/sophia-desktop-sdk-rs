@@ -156,6 +156,9 @@ impl Owner {
         self.admit_packet(packet(self.role, id))
     }
     fn admit_packet(&mut self, admitted: [u8; 200]) -> bool {
+        self.admit_at(admitted, 0)
+    }
+    fn admit_at(&mut self, admitted: [u8; 200], now: u64) -> bool {
         let id = u64::from_le_bytes(admitted[32..40].try_into().unwrap());
         // Two terminal records per offer plus one permanently reserved Closed
         // slot; ordinary admission/Ready records are outside this ledger.
@@ -170,15 +173,7 @@ impl Owner {
                 .count()
                 == 4
             || (self.offers.len() + 1) * 8 > self.backing_bytes
-            || self.reserved
-                + self
-                    .events
-                    .iter()
-                    .filter(|e| matches!(e, Event::Status { .. } | Event::Released { .. }))
-                    .count()
-                + 2
-                + 1
-                > self.capacity
+            || self.reserved + self.events.len() + 2 + 1 > self.capacity
         {
             return false;
         }
@@ -192,7 +187,7 @@ impl Owner {
             admitted,
             retired: false,
             leases: 0,
-            deadline: 2000,
+            deadline: now.checked_add(2000).expect("fixture deadline overflow"),
         });
         true
     }
@@ -230,16 +225,23 @@ impl Owner {
         }
     }
     fn collect(&mut self) {
-        if self.live_journal {
-            self.events.extend(
-                self.offers
-                    .iter()
-                    .filter(|o| o.phase == Phase::Accepted && o.retired && o.leases == 0)
-                    .map(|o| Event::ResourceReleased { id: o.id }),
-            );
+        let mut i = 0;
+        while i < self.offers.len() {
+            let o = &self.offers[i];
+            if o.phase != Phase::Accepted || !o.retired || o.leases != 0 {
+                i += 1;
+                continue;
+            }
+            if self.live_journal {
+                let closed_reserve = usize::from(!self.disabled);
+                if self.events.len() + self.reserved + closed_reserve >= self.capacity {
+                    i += 1;
+                    continue; // Retain backing and charge until notification fits.
+                }
+                self.events.push(Event::ResourceReleased { id: o.id });
+            }
+            self.offers.remove(i);
         }
-        self.offers
-            .retain(|o| !(o.phase == Phase::Accepted && o.retired && o.leases == 0));
     }
     fn expire(&mut self, now: u64) {
         let ids: Vec<_> = self
@@ -333,7 +335,8 @@ impl Owner {
             return;
         }
         if b != self.offers[i].admitted {
-            self.terminal(i, false, 3);
+            self.faults += 1;
+            self.close_channel();
             return;
         }
         let fd = fds.pop().unwrap();
@@ -519,6 +522,20 @@ fn fake_capture_quarantine() {
 
 fn refusal_expiry_and_duplicate_packets() {
     for role in [1, 2] {
+        let (tx, rx) = sockets();
+        let mut owner = Owner::new(role);
+        owner.ready = true;
+        assert!(owner.admit_at(packet(role, 1), 100));
+        owner.expire(2000);
+        assert!(owner.events.is_empty());
+        let fd = source();
+        send(&tx, &packet(role, 1), &fd);
+        owner.receive(&rx);
+        assert_eq!(owner.offers[0].deadline, 2100);
+        owner.expire(2099);
+        assert!(owner.events.is_empty());
+        owner.expire(2100);
+        assert_eq!(owner.events, terminal_events(1, false, 3));
         for truncated_control in [false, true] {
             let (tx, rx) = sockets();
             let mut owner = Owner::new(role);
@@ -556,10 +573,25 @@ fn refusal_expiry_and_duplicate_packets() {
                 owner.start_worker(1);
                 owner.worker_returns(1);
             }
-            assert_eq!(
-                owner.events,
-                terminal_events(1, matching, if matching { 1 } else { 3 })
-            );
+            if matching {
+                assert_eq!(owner.events, terminal_events(1, true, 1));
+            } else {
+                assert_eq!(
+                    owner.events,
+                    [
+                        Event::Closed,
+                        Event::Status {
+                            id: 1,
+                            accepted: false
+                        },
+                        Event::Released {
+                            id: 1,
+                            disposition: 4
+                        }
+                    ]
+                );
+                assert_eq!(owner.faults, 1);
+            }
         }
         // Isolate each bound; a refusal must not advance the admission mark.
         let mut owner = Owner::new(role);
@@ -718,11 +750,31 @@ fn journal_loss_and_retirement_do_not_invent_release() {
         assert_eq!(owner.offers.len(), 1);
         assert_eq!(io::pwrite(&fd, b"X", 0), Err(io::Errno::PERM));
         owner.offers[0].leases = 0;
+        owner.capacity = 3; // Two terminals plus the reserved ChannelClosed slot.
+        owner.collect();
+        assert_eq!(owner.offers.len(), 1);
+        assert_eq!(owner.events.len(), 2);
+        owner.events.clear(); // Journal ACK makes notification capacity available.
         owner.collect();
         assert!(owner.offers.is_empty());
-        assert_eq!(owner.events.len(), 3);
-        assert_eq!(owner.events[2], Event::ResourceReleased { id: 2 });
+        assert_eq!(owner.events, [Event::ResourceReleased { id: 2 }]);
         owner.collect();
-        assert_eq!(owner.events.len(), 3);
+        assert_eq!(owner.events.len(), 1);
+
+        let mut owner = Owner::new(role);
+        owner.ready = true;
+        assert!(owner.admit(3));
+        send(&tx, &packet(role, 3), &fd);
+        owner.receive(&rx);
+        owner.start_worker(3);
+        owner.worker_returns(3);
+        owner.offers[0].leases = 1;
+        let observed = owner.events.clone();
+        owner.end_epoch();
+        assert_eq!(owner.offers.len(), 1);
+        owner.offers[0].leases = 0;
+        owner.collect();
+        assert!(owner.offers.is_empty());
+        assert_eq!(owner.events, observed); // No ResourceReleased on the dead journal.
     }
 }
