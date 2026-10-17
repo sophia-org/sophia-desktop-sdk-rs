@@ -882,3 +882,126 @@ fn rejected_backwards_drive_leaves_queued_work_unsent() {
     });
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn live_forget_is_refused_and_cancellation_still_works() {
+    let (mut connection, mut peer, dir, listener) = connect_image("forget");
+    let _accepted = drive_to_ready(&mut connection, &mut peer, &listener);
+    let admission = connection
+        .image_begin(metadata(), sealed_fd(), Instant::now())
+        .unwrap();
+    answer_submit(&mut connection, &mut peer, ShellFileKind::ImageBegin);
+    // A live offer cannot be forgotten, and the refused forget must
+    // not destroy the identity its cancellation needs.
+    assert_eq!(
+        connection.image_forget(admission.offer),
+        Err(ImageAdapterError::Refused)
+    );
+    let ticket = connection
+        .image_cancel(admission.offer, Instant::now())
+        .unwrap();
+    assert!(
+        connection
+            .image_adapter()
+            .unwrap()
+            .offer(admission.offer)
+            .unwrap()
+            .cancel_requested
+    );
+    answer_submit(&mut connection, &mut peer, ShellFileKind::ResourceCancel);
+    drive(&mut connection, &mut peer, |connection, _| {
+        connection.custody(ticket) == Some(Custody::Submitted)
+    });
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn wrong_transaction_status_is_delivered_but_never_mutates_custody() {
+    let (mut connection, mut peer, dir, listener) = connect_image("wrongtx");
+    let accepted = drive_to_ready(&mut connection, &mut peer, &listener);
+    connection
+        .image_begin(metadata(), sealed_fd(), Instant::now())
+        .unwrap();
+    answer_submit(&mut connection, &mut peer, ShellFileKind::ImageBegin);
+    let body = ShellImageMetadata {
+        offer_id: 1,
+        resource: 21,
+        resource_generation: 1,
+        admission_epoch: EPOCH,
+        output_id: 1,
+        allocation_id: 1,
+        topology_generation: 1,
+        source_kind: 1,
+        source_format: 1,
+        width: 2,
+        height: 2,
+        stride: 8,
+        plane_count: 1,
+        descriptor_count: 1,
+        declared_bytes: 16,
+        modifier: 0,
+    }
+    .encode()
+    .unwrap();
+    let bytes = peer.event_image(ShellFileKind::ImageAdmitted, &body);
+    peer.push(bytes);
+    drive(&mut connection, &mut peer, |connection, _| {
+        connection.image_adapter().unwrap().offer(1).unwrap().state == OfferState::Sent
+    });
+    let _packet = recv_packet(&accepted);
+
+    let status_body = |transaction: u64| {
+        encode_shell_file_resource_status_body(&ShellFileTransactionRecord {
+            transaction: TransactionId::from_raw(transaction),
+            record: ShellContentRecord::ResourceStatus(ContentResourceStatus {
+                grant: ContentGrant {
+                    connection_epoch: EPOCH,
+                    content_grant_epoch: EPOCH,
+                },
+                resource: ContentResourceId {
+                    id: 21,
+                    generation: 1,
+                },
+                status: 2,
+                reason: 0,
+                next_ordinal: 0,
+                admitted_bytes: 16,
+            }),
+        })
+        .unwrap()
+    };
+    // Same resource, wrong transaction: delivered to the caller,
+    // invisible to image custody.
+    let bytes = peer.event(ShellFileKind::ResourceStatus, &status_body(99));
+    peer.push(bytes);
+    for _ in 0..50 {
+        connection.poll_io().unwrap();
+        peer.pump();
+        if connection
+            .image_adapter()
+            .unwrap()
+            .offer(1)
+            .unwrap()
+            .status
+            .is_some()
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let (_, delivered) = connection.take_content().unwrap().unwrap();
+    assert!(matches!(delivered, ShellContentRecord::ResourceStatus(_)));
+    assert_eq!(
+        connection.image_adapter().unwrap().offer(1).unwrap().status,
+        None,
+        "a status naming another transaction must not mutate custody"
+    );
+    // The correctly named status still routes.
+    let bytes = peer.event(ShellFileKind::ResourceStatus, &status_body(1));
+    peer.push(bytes);
+    drive(&mut connection, &mut peer, |connection, _| {
+        connection.image_adapter().unwrap().offer(1).unwrap().status
+            == Some(sophia_image_producer::ResourceStatusKind::Accepted)
+    });
+    let _ = std::fs::remove_dir_all(dir);
+}

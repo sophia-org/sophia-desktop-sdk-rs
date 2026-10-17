@@ -570,6 +570,10 @@ impl FileWire {
                         self.image_routed
                             .push_back(super::image_adapter::Routed::Status(
                                 super::image_adapter::StatusRoute {
+                                    transaction: match &item {
+                                        Inbound::Content(tx, _) => tx.raw(),
+                                        _ => 0,
+                                    },
                                     resource: resource.id,
                                     generation: resource.generation,
                                     status,

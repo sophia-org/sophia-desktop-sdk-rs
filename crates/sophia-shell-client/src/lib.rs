@@ -763,9 +763,13 @@ impl ShellConnection {
     /// Forget a settled image offer, freeing its adapter slot.
     pub fn image_forget(&mut self, offer: u64) -> Result<(), ImageAdapterError> {
         let adapter = self.image.as_mut().ok_or(ImageAdapterError::NotEnabled)?;
-        adapter.forget_offer(offer);
+        // The producer validates the settled state first: a refused
+        // forget of a live offer must not destroy the metadata its
+        // cancellation still needs.
         let producer = adapter.producer_mut().ok_or(ImageAdapterError::Closed)?;
-        producer.forget(offer).map_err(ImageAdapterError::from)
+        producer.forget(offer).map_err(ImageAdapterError::from)?;
+        adapter.forget_offer(offer);
+        Ok(())
     }
 
     /// Queue one sealed source as an ImageBegin candidate. On

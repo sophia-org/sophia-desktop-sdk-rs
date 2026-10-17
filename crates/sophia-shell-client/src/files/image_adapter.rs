@@ -108,6 +108,9 @@ pub(crate) enum Routed {
 /// One routed `ResourceStatus` outcome for the producer.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct StatusRoute {
+    /// The event's transaction: status routes only to the offer it
+    /// names, with matching resource identity.
+    pub transaction: u64,
     pub resource: u64,
     pub generation: u64,
     pub status: ResourceStatusKind,
@@ -552,13 +555,27 @@ impl ImageAdapter {
             while let Some(routed) = wire.image_routed.pop_front() {
                 let result = match routed {
                     Routed::Event(event) => producer.record(wire_epoch(wire), event, now_ms),
-                    Routed::Status(route) => producer.resource_status(
-                        route.resource,
-                        route.generation,
-                        route.status,
-                        route.unavailable,
-                        now_ms,
-                    ),
+                    Routed::Status(route) => {
+                        // Only the offer the status names, with the
+                        // exact resource identity, is forwarded; any
+                        // other status is the application's alone and
+                        // never mutates image custody.
+                        let named = producer.offer(route.transaction).is_some_and(|info| {
+                            info.resource == route.resource
+                                && info.resource_generation == route.generation
+                        });
+                        if named {
+                            producer.resource_status(
+                                route.resource,
+                                route.generation,
+                                route.status,
+                                route.unavailable,
+                                now_ms,
+                            )
+                        } else {
+                            Ok(())
+                        }
+                    }
                 };
                 if let Err(ProducerError::Argument) = result {
                     return Err(ShellClientError::InvalidArgument("image clock"));
