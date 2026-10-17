@@ -35,6 +35,7 @@ pub struct ImageRead {
     cap: usize,
     bytes: Vec<u8>,
     remote: Option<u32>,
+    clunk_failed: bool,
 }
 impl ImageRead {
     pub fn new(cap: usize) -> Result<Self, Error> {
@@ -52,10 +53,15 @@ impl ImageRead {
             cap,
             bytes: Vec::new(),
             remote: None,
+            clunk_failed: false,
         })
     }
     pub fn done(&self) -> bool {
         self.stage == Stage::Done
+    }
+    /// A failed cleanup is never evidence that discovery is absent.
+    pub fn clunk_failed(&self) -> bool {
+        self.clunk_failed
     }
     pub fn operation(&self, msize: u32) -> Result<Option<Operation>, Error> {
         if self.pending || self.done() {
@@ -107,6 +113,7 @@ impl ImageRead {
         if let Reply::Error(errno) = reply {
             if self.stage == Stage::Clunk {
                 self.remote = Some(errno.0);
+                self.clunk_failed = true;
             } else {
                 self.remote.get_or_insert(errno.0);
             }

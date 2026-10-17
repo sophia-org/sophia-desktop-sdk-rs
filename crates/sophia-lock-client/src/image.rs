@@ -220,16 +220,13 @@ impl LockImageAdapter {
         if !self.read.as_ref().is_some_and(ImageRead::done) {
             return Ok(());
         }
-        let result = self
-            .read
-            .take()
-            .unwrap()
-            .into_result()
-            .map_err(|_| ImageError::Protocol)?;
+        let read = self.read.take().unwrap();
+        let clunk_failed = read.clunk_failed();
+        let result = read.into_result().map_err(|_| ImageError::Protocol)?;
         match result {
             Ok(bytes) => self.objects[self.index] = bytes,
             Err(errno) => {
-                let read = if errno == 2 && self.index == 0 {
+                let read = if errno == 2 && self.index == 0 && !clunk_failed {
                     DiscoveryRead::Absent
                 } else {
                     DiscoveryRead::Failed

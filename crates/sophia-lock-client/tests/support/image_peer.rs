@@ -144,7 +144,7 @@ pub enum Case {
     ReadError(u32),
     Malformed,
     Oversized,
-    ClunkError,
+    ClunkError(u32),
     Contradiction,
     Unavailable,
 }
@@ -467,10 +467,10 @@ pub fn start_case(case: Case, cancel: bool) -> Peer {
                     }
                     120 => {
                         let name = fids.remove(&fid);
-                        if matches!(case, Case::ClunkError)
+                        if let Case::ClunkError(errno) = case
                             && name.as_deref() == Some("image-channel")
                         {
-                            send(&mut stream, 7, tag, &5u32.to_le_bytes());
+                            send(&mut stream, 7, tag, &errno.to_le_bytes());
                         } else {
                             send(&mut stream, 121, tag, &[]);
                         }

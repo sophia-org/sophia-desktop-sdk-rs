@@ -216,7 +216,8 @@ fn discovery_failures_do_not_kill_the_role_session() {
     for case in [
         peer::Case::Malformed,
         peer::Case::Oversized,
-        peer::Case::ClunkError,
+        peer::Case::ClunkError(5),
+        peer::Case::ClunkError(2),
         peer::Case::ReadError(13),
         peer::Case::ReadError(116),
         peer::Case::ReadError(11),
