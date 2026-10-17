@@ -2,9 +2,13 @@
 
 ## Draft image codec fixtures, 2026-10-17
 
-Independent test-only decoders exercise 53 vectors from proposed Sophia
+Independent test-only decoders exercise 53 reviewed vectors from proposed Sophia
 x6jp929h (3a1e5588d): channel Hello/Source, records 0x7000–0x7006 and discovery.
 Each rejects every truncated prefix of a valid case and trailing bytes.
+An additional one-row/64-byte formats case brings the corpus to 54. Formats
+length is checked before capacity or sealed-only support. A separately generated,
+correctly sized 4097-row object reaches Capacity; the old short 4097-row case
+now correctly reports Length.
 Every corpus row also names its required refusal category; malformed data,
 stale identities, count/arithmetic failures and incoherent snapshots cannot
 substitute for one another. These enums are fixture diagnostics, not new wire

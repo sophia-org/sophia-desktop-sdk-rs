@@ -379,6 +379,9 @@ fn classify(family: &str, b: &[u8], fds: u64, limits: &[u8], formats: &[u8]) -> 
                 }
             }
             Some(0x7006) if b.len() >= 64 => {
+                if 64 + 40 * n(b, 56, 4).unwrap() != b.len() as u64 {
+                    return Length;
+                }
                 if n(b, 60, 4) != Some(0) {
                     return Reserved;
                 }
@@ -521,5 +524,15 @@ fn draft_corpus_and_all_truncated_prefixes() {
         }
         total += 1;
     }
-    assert_eq!(total, 53);
+    assert_eq!(total, 54);
+    // A complete over-limit object must reach Capacity rather than Length.
+    let mut oversized = vec![0; 64 + 40 * 4097];
+    oversized[..64].copy_from_slice(&formats);
+    let len = oversized.len() as u32;
+    oversized[..4].copy_from_slice(&len.to_le_bytes());
+    oversized[56..60].copy_from_slice(&4097u32.to_le_bytes());
+    assert_eq!(
+        classify("record", &oversized, 0, &limits, &formats),
+        Refusal::Capacity
+    );
 }
