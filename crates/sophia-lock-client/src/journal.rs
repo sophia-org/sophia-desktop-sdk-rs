@@ -15,9 +15,17 @@ pub enum Event {
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Control {
+    Image(ImageControl),
     Negotiated(LockNegotiated),
     Refused(LockRefusal),
     Submitted(LockSubmitted),
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ImageControl {
+    Admitted(LockImageMetadata),
+    Released(LockSourceReleased),
+    Ready(LockChannelReady),
+    Closed(LockChannelClosed),
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Error {
@@ -34,6 +42,7 @@ impl From<BinaryCodecError> for Error {
 pub struct Journal {
     epoch: u64,
     capabilities: u64,
+    image_enabled: bool,
     minimum_revision: u16,
     maximum_revision: u16,
     selected_revision: Option<u16>,
@@ -59,6 +68,7 @@ impl Journal {
         Ok(Self {
             epoch,
             capabilities: offer.requested_capabilities,
+            image_enabled: false,
             minimum_revision: offer.minimum_revision,
             maximum_revision: offer.maximum_revision,
             selected_revision: None,
@@ -76,6 +86,9 @@ impl Journal {
             verified: false,
             fault: None,
         })
+    }
+    pub(crate) fn enable_image(&mut self) {
+        self.image_enabled = true;
     }
     pub fn offset(&self) -> u64 {
         self.offset
@@ -211,6 +224,36 @@ impl Journal {
                     None
                 }
                 _ if self.welcome.is_none() => return Err(Error::Invalid),
+                LockFileKind::ImageAdmitted
+                | LockFileKind::SourceReleased
+                | LockFileKind::ChannelReady
+                | LockFileKind::ChannelClosed => {
+                    if !self.image_enabled
+                        || revision != 2
+                        || self.welcome.unwrap().granted_capabilities
+                            & LOCK_FILE_CAPABILITY_SEALED_MEMORY
+                            == 0
+                    {
+                        return Err(Error::Invalid);
+                    }
+                    let image = match h.kind {
+                        LockFileKind::ImageAdmitted => {
+                            ImageControl::Admitted(LockImageMetadata::decode(b)?)
+                        }
+                        LockFileKind::SourceReleased => {
+                            ImageControl::Released(LockSourceReleased::decode(b)?)
+                        }
+                        LockFileKind::ChannelReady => {
+                            ImageControl::Ready(LockChannelReady::decode(b)?)
+                        }
+                        LockFileKind::ChannelClosed => {
+                            ImageControl::Closed(LockChannelClosed::decode(b)?)
+                        }
+                        _ => unreachable!(),
+                    };
+                    control(h, Control::Image(image))?;
+                    None
+                }
                 LockFileKind::ObjectPublished => {
                     let v = LockObjectPublished::decode(b)?;
                     if v.object_generation <= self.generation {

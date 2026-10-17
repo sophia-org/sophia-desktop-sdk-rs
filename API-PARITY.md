@@ -1,5 +1,34 @@
 # C and Rust SDK API parity
 
+## Opt-in sealed-image role adapters, Rust, 2026-10-17
+
+The BAR shell adapter (`9cc9678`, corrected by `1e1eecf`) and lock adapter
+integrate the shared producer with their existing 9P sessions. Default
+constructors remain byte-only. Explicit selection and sealed grants gate
+discovery; DMA is not requested. Each adapter reads one bounded, immutable
+three-file set per pass, waits for clunk completion, and treats only an absent
+image-channel file as clean absence. Generation mismatches retry; other read
+or coherence failures close the image path without destroying the role session.
+
+Image events are consumed internally in journal order; ResourceStatus remains
+public and reaches the producer only for its exact offer transaction and resource
+identity. Cancellation prepares the candidate before permanently suppressing
+Source transmission. SourceReleased retains sole settlement authority after
+admission. Both socket interests and image deadlines join the caller's drive;
+neither adapter hides a second event loop. A validated selection without a sealed
+grant reports Unavailable consistently, including through the producer view.
+
+These capabilities correspond to C role adapters and cancellation through
+`e777235` (published in the C `d51b033` stack). Rust's lock controls exercise real
+9P discovery and SEQPACKET descriptor handoff, cancel-before-admission, ordered
+status/release, clean absence, malformed/denied/oversized/clunk-failed discovery,
+channel contradictions and an ungranted sealed path. Shell controls additionally
+pin failed-forget custody, transaction-specific status routing and clock
+preflight. Full lock-client/producer suites and strict Clippy pass; shell's
+205-test result is recorded by its lane. Production-export interoperability and
+native performance remain separate qualification gates; this is not a claim
+that t338 is complete.
+
 ## Rust lock revision selection, 2026-10-17
 
 The lock session validates the explicit Negotiated selection against the offered

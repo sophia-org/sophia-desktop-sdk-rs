@@ -3,6 +3,7 @@
 pub use sophia_lock_protocol as protocol;
 mod candidate;
 pub use candidate::{Candidate, Prepared};
+mod image;
 /// Provisional bounded discovery reader; integrated by the image adapter.
 #[doc(hidden)]
 pub mod image_read;
@@ -12,6 +13,7 @@ pub mod journal;
 /// Provisional exact publication fetch, including supersession.
 #[doc(hidden)]
 pub mod object;
+pub use image::{ImageAdmission, ImageBeginError, ImageError, LockImageAdapter, LockImageConfig};
 mod session;
 /// Provisional fixed-file startup for the experimental session.
 #[doc(hidden)]

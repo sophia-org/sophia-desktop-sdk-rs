@@ -550,6 +550,13 @@ impl ImageProducer {
         self.fail(CloseCause::Caller);
     }
 
+    /// The role adapter has validated a negotiation without a usable sealed
+    /// grant. This closes the side channel cleanly; it never settles offers or
+    /// invents journal release. Callers still choose whether bytes are allowed.
+    pub fn channel_unavailable(&mut self) {
+        self.fail(CloseCause::Unavailable);
+    }
+
     pub fn channel(&self) -> ChannelState {
         self.channel
     }

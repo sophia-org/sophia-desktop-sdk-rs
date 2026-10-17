@@ -106,11 +106,12 @@ impl ImageRead {
         self.pending = false;
         if let Reply::Error(errno) = reply {
             if self.stage == Stage::Clunk {
-                return Err(Error::Invalid);
+                self.remote = Some(errno.0);
+            } else {
+                self.remote.get_or_insert(errno.0);
             }
-            self.remote.get_or_insert(errno.0);
             self.stage = match self.stage {
-                Stage::Walk => Stage::Done,
+                Stage::Walk | Stage::Clunk => Stage::Done,
                 _ => Stage::Clunk,
             };
             return Ok(());
@@ -129,8 +130,13 @@ impl ImageRead {
                 self.stage = Stage::Read;
             }
             (Stage::Read, Reply::Read(bytes)) => {
-                if bytes.len() > self.sent || bytes.len() > self.cap - self.bytes.len() {
+                if bytes.len() > self.sent {
                     return Err(Error::Invalid);
+                }
+                if bytes.len() > self.cap - self.bytes.len() {
+                    self.remote = Some(71); // EPROTO: failed discovery, never absence.
+                    self.stage = Stage::Clunk;
+                    return Ok(());
                 }
                 if bytes.is_empty() {
                     self.stage = Stage::Clunk;

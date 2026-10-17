@@ -59,7 +59,10 @@ fn capacity_requires_eof_probe_and_successful_clunk() {
     assert_eq!(f.into_result().unwrap().unwrap(), [1, 1, 1, 1, 1, 1, 1, 2]);
     let mut f = opened(1);
     issue(&mut f, Reply::Read(vec![1])).unwrap();
-    assert_eq!(issue(&mut f, Reply::Read(vec![2])), Err(Error::Invalid));
+    issue(&mut f, Reply::Read(vec![2])).unwrap();
+    assert!(!f.done());
+    issue(&mut f, Reply::Clunk).unwrap();
+    assert_eq!(f.into_result().unwrap(), Err(71));
 }
 #[test]
 fn read_errors_retain_errno_and_release_the_fid_before_result() {
@@ -76,7 +79,8 @@ fn read_errors_retain_errno_and_release_the_fid_before_result() {
     }
     let mut f = opened(16);
     issue(&mut f, Reply::Error(Errno(2))).unwrap();
-    assert_eq!(issue(&mut f, Reply::Error(Errno(5))), Err(Error::Invalid));
+    issue(&mut f, Reply::Error(Errno(5))).unwrap();
+    assert_eq!(f.into_result().unwrap(), Err(5));
 }
 #[test]
 fn malformed_replies_and_oversized_capacity_are_fatal() {
