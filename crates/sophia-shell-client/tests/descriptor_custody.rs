@@ -97,6 +97,7 @@ enum Phase {
     Admitted,
     Received,
     Validating,
+    Capturing,
     Accepted,
 }
 struct Offer {
@@ -214,6 +215,9 @@ impl Owner {
     fn stop(&mut self, id: u64, disposition: u32) {
         if let Some(i) = self.offers.iter().position(|o| o.id == id) {
             match self.offers[i].phase {
+                Phase::Capturing => {
+                    self.offers[i].cancelled = Some(5);
+                }
                 Phase::Validating => {
                     self.offers[i].cancelled.get_or_insert(disposition);
                 }
@@ -348,6 +352,19 @@ impl Owner {
         assert_eq!(o.phase, Phase::Received);
         o.phase = Phase::Validating;
     }
+    fn fake_capture_submit(&mut self, id: u64) {
+        let o = self.offers.iter_mut().find(|o| o.id == id).unwrap();
+        assert_eq!(o.phase, Phase::Received);
+        o.phase = Phase::Capturing;
+    }
+    fn fake_capture_cleanup(&mut self, id: u64, proven_safe: bool) {
+        let i = self.offers.iter().position(|o| o.id == id).unwrap();
+        assert_eq!(self.offers[i].phase, Phase::Capturing);
+        assert_eq!(self.offers[i].cancelled, Some(5));
+        if proven_safe {
+            self.terminal(i, false, 5);
+        }
+    }
     fn worker_returns(&mut self, id: u64) {
         let i = self.offers.iter().position(|o| o.id == id).unwrap();
         let o = &self.offers[i];
@@ -444,10 +461,60 @@ fn sealed_lifecycle_races_keep_custody_and_reservations() {
     journal_loss_and_retirement_do_not_invent_release();
     producer::exercise();
     refusal_expiry_and_duplicate_packets();
+    fake_capture_quarantine();
     assert_eq!(
         std::fs::read_dir("/proc/self/fd").unwrap().count(),
         baseline
     );
+}
+
+fn fake_capture_quarantine() {
+    // A fake completion seam checks only retention and release transitions.
+    // The file is sealed; this is not a DMA-BUF import or GPU safety test.
+    for dead_journal in [false, true] {
+        for role in [1, 2] {
+            let (tx, rx) = sockets();
+            let mut owner = Owner::new(role);
+            owner.ready = true;
+            let fd = source();
+            for id in 1..=4 {
+                assert!(owner.admit(id));
+                send(&tx, &packet(role, id), &fd);
+                owner.receive(&rx);
+                owner.fake_capture_submit(id);
+            }
+            owner.expire(2000);
+            assert!(owner.events.is_empty());
+            assert_eq!(owner.reserved, 8);
+            assert!(!owner.admit(5));
+            if dead_journal {
+                owner.end_epoch();
+            }
+            for id in 1..=4 {
+                owner.fake_capture_cleanup(id, false);
+                assert!(
+                    owner
+                        .offers
+                        .iter()
+                        .find(|o| o.id == id)
+                        .unwrap()
+                        .fd
+                        .is_some()
+                );
+                owner.fake_capture_cleanup(id, true);
+            }
+            assert!(owner.offers.is_empty());
+            assert_eq!(owner.reserved, 0);
+            if dead_journal {
+                assert!(owner.events.is_empty());
+            } else {
+                let expected: Vec<_> = (1..=4)
+                    .flat_map(|id| terminal_events(id, false, 5))
+                    .collect();
+                assert_eq!(owner.events, expected);
+            }
+        }
+    }
 }
 
 fn refusal_expiry_and_duplicate_packets() {

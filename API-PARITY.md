@@ -27,6 +27,10 @@ offer/byte/journal bounds, send failure on a closed socket, ancillary truncation
 and owner-integrated seal/size/pixel refusals have independent assertions.
 Released source offers are distinct from retained resource backing: a late
 packet does not fault merely because the resource still has consumer leases.
+A fake capture-completion seam retains all four slots and received references
+through timeout and epoch loss until an explicit safe-cleanup signal. This
+checks the quarantine state transition only; the source is still a sealed file,
+and no DMA-BUF or GPU operation occurs.
 The existing kernel/decoder targets separately exercise truncation, seal variants,
 wrong sizes and the complete draft vector corpus.
 
