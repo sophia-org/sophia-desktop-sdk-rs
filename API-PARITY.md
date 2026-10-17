@@ -1,5 +1,23 @@
 # C and Rust SDK API parity
 
+## Proposed image-channel kernel fixtures, 2026-10-17
+
+Sophia's proposed t337 design (x6jp929h at fb5d2ae57) now has independent
+Linux kernel-prerequisite tests in both SDK trees. They exercise real SEQPACKET
+SCM_RIGHTS, required seals and FUTURE_WRITE rejection, producer-close survival,
+receiver CLOEXEC, missing/extra rights, control truncation, bounded nonblocking
+send backpressure and queued-reference teardown. Each checks its process FD
+count returns to baseline. C additionally verifies that a shared writable
+mapping makes F_ADD_SEALS(F_SEAL_WRITE) fail with EBUSY; Rust keeps its unsafe-code
+prohibition and checks the resulting seal requirement without mapping memory.
+
+These tests use no new public API and do not implement the proposed transport.
+They establish kernel prerequisites only, not codec, authentication, admission,
+journal custody, GPU completion or production-export conformance. C runs
+descriptor_kernel_test; Rust runs sophia-shell-client's descriptor_kernel test.
+The draft custody matrix remains to be implemented independently in both SDKs.
+No public ABI or vendored contract changes are part of this fixture slice.
+
 ## Queued shell submit (B2), 2026-10-17
 
 Review follow-up: both SDKs retain a full successful submit reply as authoritative
