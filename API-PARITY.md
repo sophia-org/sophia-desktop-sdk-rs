@@ -5,6 +5,12 @@
 Independent test-only decoders exercise 53 vectors from proposed Sophia
 x6jp929h (3a1e5588d): channel Hello/Source, records 0x7000–0x7006 and discovery.
 Each rejects every truncated prefix of a valid case and trailing bytes.
+Every corpus row also names its required refusal category; malformed data,
+stale identities, count/arithmetic failures and incoherent snapshots cannot
+substitute for one another. These enums are fixture diagnostics, not new wire
+reason codes. Channel, limits and formats generations are decoded independently
+and compared between discovery and both objects. Matching changed generations
+pass; changing only discovery or one participating object fails coherence.
 The fixture fixes the admitted grant/allocation and sealed-only discovery;
 it is not a general DMA format decoder or a public protocol implementation.
 The source corpus is draft-vectors.json (d76d9b3f84854dabb04a223c522bd6001af2b85a0fc73b2987de16e1d6b6e71a)

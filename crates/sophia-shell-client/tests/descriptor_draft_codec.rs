@@ -103,7 +103,7 @@ fn record(b: &[u8]) -> Option<()> {
             }
         }
         0x7005 => {
-            if b.len() != 136 || n(b, 32, 8)? != 2 || n(b, 40, 8)? != 1 || n(b, 128, 8)? != 0 {
+            if b.len() != 136 || n(b, 32, 8)? == 0 || n(b, 40, 8)? == 0 || n(b, 128, 8)? != 0 {
                 return None;
             }
             let resource = n(b, 48, 8)?;
@@ -128,9 +128,9 @@ fn record(b: &[u8]) -> Option<()> {
         0x7006 => {
             // This fixture negotiated sealed-only; a GPU row is not authorized.
             if b.len() != 64
-                || n(b, 32, 8)? != 2
-                || n(b, 40, 8)? != 9
-                || n(b, 48, 8)? != 1
+                || n(b, 32, 8)? == 0
+                || n(b, 40, 8)? == 0
+                || n(b, 48, 8)? == 0
                 || n(b, 56, 4)? != 0
                 || n(b, 60, 4)? != 0
             {
@@ -141,7 +141,7 @@ fn record(b: &[u8]) -> Option<()> {
     }
     Some(())
 }
-fn discovery(b: &[u8]) -> Option<()> {
+fn discovery(b: &[u8]) -> Option<[u64; 15]> {
     if b.len() > 2048 || b.last() != Some(&b'\n') {
         return None;
     }
@@ -168,6 +168,7 @@ fn discovery(b: &[u8]) -> Option<()> {
         "limits_generation",
     ];
     let expected = [0, 1, 2, 0, 1, 200, 4, 4, 1, 250, 2000, 65536, 500, 9, 1];
+    let mut values = [0; 15];
     for (i, key) in fields.iter().enumerate() {
         let (name, value) = lines.next()?.split_once('=')?;
         if name != *key {
@@ -191,7 +192,11 @@ fn discovery(b: &[u8]) -> Option<()> {
                 return None;
             }
             let number: u64 = value.parse().ok()?;
-            if (i == 0 && !matches!(number, 1 | 2)) || (i != 0 && number != expected[i]) {
+            values[i] = number;
+            if (i == 0 && !matches!(number, 1 | 2))
+                || (matches!(i, 2 | 13 | 14) && number == 0)
+                || (!matches!(i, 0 | 2 | 13 | 14) && number != expected[i])
+            {
                 return None;
             }
         }
@@ -199,16 +204,246 @@ fn discovery(b: &[u8]) -> Option<()> {
     if lines.next().is_some() {
         return None;
     }
-    Some(())
+    Some(values)
 }
 fn accepts(family: &str, b: &[u8], fds: u64) -> bool {
     match family {
         "channel" => channel(b, fds),
         "record" => record(b),
-        "discovery" => discovery(b),
+        "discovery" => discovery(b).map(|_| ()),
         _ => None,
     }
     .is_some()
+}
+#[derive(Debug, PartialEq)]
+enum Refusal {
+    Accept,
+    Length,
+    Version,
+    Role,
+    Reserved,
+    Epoch,
+    Generation,
+    FdCount,
+    Offer,
+    SourceKind,
+    PlaneCount,
+    PlaneLayout,
+    Dimensions,
+    Stride,
+    ByteLength,
+    Modifier,
+    DiscoveryFields,
+    Decimal,
+    Endpoint,
+    Constants,
+    Coherence,
+    Capacity,
+    FormatsUnsupported,
+    Malformed,
+}
+fn coherent(d: &[u8], l: &[u8], f: &[u8]) -> Refusal {
+    let Some(v) = discovery(d) else {
+        return Refusal::Malformed;
+    };
+    if record(l).is_none()
+        || record(f).is_none()
+        || n(l, 6, 2) != Some(0x7005)
+        || n(f, 6, 2) != Some(0x7006)
+    {
+        return Refusal::Malformed;
+    }
+    if n(l, 8, 8) != Some(v[1])
+        || n(f, 8, 8) != Some(v[1])
+        || n(l, 32, 8) != Some(v[2])
+        || n(f, 32, 8) != Some(v[2])
+        || n(l, 40, 8) != Some(v[14])
+        || n(f, 48, 8) != Some(v[14])
+        || n(f, 40, 8) != Some(v[13])
+    {
+        Refusal::Coherence
+    } else {
+        Refusal::Accept
+    }
+}
+fn classify(family: &str, b: &[u8], fds: u64, limits: &[u8], formats: &[u8]) -> Refusal {
+    use Refusal::*;
+    if family == "discovery" {
+        if discovery(b).is_some() {
+            return coherent(b, limits, formats);
+        }
+        let Ok(s) = std::str::from_utf8(b) else {
+            return DiscoveryFields;
+        };
+        if !s.ends_with('\n') {
+            return DiscoveryFields;
+        }
+        for line in s.lines().skip(1) {
+            let Some((key, value)) = line.split_once('=') else {
+                return DiscoveryFields;
+            };
+            if key == "endpoint"
+                && (value.is_empty()
+                    || value.len() > 64
+                    || matches!(value, "." | "..")
+                    || !value
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || b"_.-".contains(&c)))
+            {
+                return Endpoint;
+            }
+            if key != "endpoint"
+                && (value.is_empty()
+                    || (value.len() > 1 && value.starts_with('0'))
+                    || !value.bytes().all(|c| c.is_ascii_digit())
+                    || value.parse::<u64>().is_err())
+            {
+                return Decimal;
+            }
+            if (key == "max_packet_bytes" && value != "200") || (key == "max_fds" && value != "4") {
+                return Constants;
+            }
+        }
+        return DiscoveryFields;
+    }
+    let min = if family == "channel" { 40 } else { 32 };
+    if b.len() < min || n(b, 0, 4) != Some(b.len() as u64) {
+        return Length;
+    }
+    if n(b, 4, 2) != Some(1) {
+        return Version;
+    }
+    if family == "channel" {
+        if !matches!(n(b, 8, 2), Some(1 | 2)) {
+            return Role;
+        }
+        if n(b, 12, 4) != Some(0) {
+            return Reserved;
+        }
+        if n(b, 16, 8) != Some(1) {
+            return Epoch;
+        }
+        if n(b, 24, 8) != Some(2) {
+            return Generation;
+        }
+        if n(b, 10, 2) != Some(fds) {
+            return FdCount;
+        }
+        if n(b, 6, 2) == Some(1) && n(b, 32, 8) != Some(0) {
+            return Offer;
+        }
+        if b.len() == 200 && n(b, 6, 2) == Some(2) {
+            if n(b, 32, 8) != n(b, 40, 8) {
+                return Offer;
+            }
+            if n(b, 96, 4) != Some(1) {
+                return SourceKind;
+            }
+            if n(b, 116, 2) != Some(1) {
+                return PlaneCount;
+            }
+            if n(b, 118, 2) != n(b, 116, 2) {
+                return FdCount;
+            }
+            if !zero(&b[150..]) {
+                return Reserved;
+            }
+            let (w, h) = (n(b, 104, 4).unwrap(), n(b, 108, 4).unwrap());
+            if !(1..=4096).contains(&w) || !(1..=4096).contains(&h) {
+                return Dimensions;
+            }
+            if n(b, 112, 4) != Some(w * 4) {
+                return Stride;
+            }
+            if n(b, 120, 8) != Some(w * h * 4) || w * h * 4 > 4194304 {
+                return ByteLength;
+            }
+            if n(b, 128, 8) != Some(0) {
+                return Modifier;
+            }
+            if n(b, 136, 8) != Some(0) || n(b, 148, 2) != Some(0) {
+                return PlaneLayout;
+            }
+        }
+    } else if family == "record" {
+        if n(b, 8, 8) != Some(1) {
+            return Epoch;
+        }
+        match n(b, 6, 2) {
+            Some(0x7005) if b.len() == 136 => {
+                if n(b, 128, 8) != Some(0) {
+                    return Reserved;
+                }
+                if n(b, 88, 4) > n(b, 84, 4) {
+                    return Capacity;
+                }
+            }
+            Some(0x7006) if b.len() >= 64 => {
+                if n(b, 60, 4) != Some(0) {
+                    return Reserved;
+                }
+                if n(b, 56, 4) > Some(4096) {
+                    return Capacity;
+                }
+                if n(b, 56, 4) != Some(0) {
+                    return FormatsUnsupported;
+                }
+            }
+            _ => {}
+        }
+    }
+    if accepts(family, b, fds) {
+        Accept
+    } else {
+        Malformed
+    }
+}
+fn corpus() -> Vec<Vec<String>> {
+    include_str!("support/image_channel_draft.tsv")
+        .lines()
+        .filter(|l| !l.starts_with('#'))
+        .map(|l| l.split('\t').map(str::to_owned).collect())
+        .collect()
+}
+fn hex(s: &str) -> Vec<u8> {
+    s.as_bytes()
+        .chunks_exact(2)
+        .map(|p| u8::from_str_radix(std::str::from_utf8(p).unwrap(), 16).unwrap())
+        .collect()
+}
+#[test]
+fn generations_are_compared_between_objects() {
+    let rows = corpus();
+    let get = |name| hex(&rows.iter().find(|r| r[0] == name).unwrap()[4]);
+    let original_d = String::from_utf8(get("shell-discovery")).unwrap();
+    let l = get("shell-limits");
+    let f = get("shell-sealed-formats");
+    for (key, offsets) in [
+        ("channel_generation", vec![(true, 32), (false, 32)]),
+        ("limits_generation", vec![(true, 40), (false, 48)]),
+        ("formats_generation", vec![(false, 40)]),
+    ] {
+        let old = original_d
+            .lines()
+            .find(|s| s.starts_with(&format!("{key}=")))
+            .unwrap();
+        let d = original_d.replace(old, &format!("{key}=3"));
+        let mut new_l = l.clone();
+        let mut new_f = f.clone();
+        for (is_limits, off) in &offsets {
+            let target = if *is_limits { &mut new_l } else { &mut new_f };
+            target[*off..*off + 8].copy_from_slice(&3u64.to_le_bytes());
+        }
+        assert_eq!(coherent(d.as_bytes(), &new_l, &new_f), Refusal::Accept);
+        assert_eq!(coherent(d.as_bytes(), &l, &f), Refusal::Coherence);
+        for (is_limits, off) in offsets {
+            let mut bad_l = new_l.clone();
+            let mut bad_f = new_f.clone();
+            let target = if is_limits { &mut bad_l } else { &mut bad_f };
+            target[off..off + 8].copy_from_slice(&4u64.to_le_bytes());
+            assert_eq!(coherent(d.as_bytes(), &bad_l, &bad_f), Refusal::Coherence);
+        }
+    }
 }
 #[cfg(target_os = "linux")]
 fn sealed_source_matches(packet: &[u8], fd: &rustix::fd::OwnedFd) -> bool {
@@ -250,20 +485,28 @@ fn check_file_sizes(packet: &[u8]) {
 }
 #[test]
 fn draft_corpus_and_all_truncated_prefixes() {
+    let rows = corpus();
+    let limits = hex(&rows.iter().find(|r| r[0] == "shell-limits").unwrap()[4]);
+    let formats = hex(&rows
+        .iter()
+        .find(|r| r[0] == "shell-sealed-formats")
+        .unwrap()[4]);
     let mut total = 0;
     for line in include_str!("support/image_channel_draft.tsv").lines() {
         if line.starts_with('#') {
             continue;
         }
         let v: Vec<_> = line.split('\t').collect();
-        assert_eq!(v.len(), 5);
+        assert_eq!(v.len(), 6);
         let bytes: Vec<_> = v[4]
             .as_bytes()
             .chunks_exact(2)
             .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
             .collect();
         let fds = v[3].parse().unwrap();
-        assert_eq!(accepts(v[1], &bytes, fds), v[2] == "1", "{}", v[0]);
+        let reason = classify(v[1], &bytes, fds, &limits, &formats);
+        assert_eq!(format!("{reason:?}"), v[5], "{}", v[0]);
+        assert_eq!(reason == Refusal::Accept, v[2] == "1", "{}", v[0]);
         if v[2] == "1" {
             #[cfg(target_os = "linux")]
             if v[1] == "channel" && bytes.len() == 200 {
