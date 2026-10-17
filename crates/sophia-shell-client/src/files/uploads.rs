@@ -42,7 +42,13 @@ impl Unit {
         }
         match self.reply {
             Some(Err(e)) if e == Errno::EAGAIN && self.confirmed == 0 => Custody::DroppedUnsent,
-            Some(Ok(n)) if self.confirmed + n as usize == self.bytes.len() => Custody::Stored,
+            Some(Ok(n))
+                if n > 0
+                    && n as usize <= self.issued
+                    && self.confirmed + n as usize == self.bytes.len() =>
+            {
+                Custody::Stored
+            }
             Some(Err(e)) if e == Errno::EINVAL && self.invalidated => Custody::DroppedUnsent,
             Some(Err(e)) if e != Errno::EAGAIN => Custody::Refused(e.0),
             _ if self.tag.is_some() || self.confirmed > 0 => Custody::Unknown,
@@ -184,6 +190,14 @@ impl FileWire {
             return Ok(());
         }
         while let Some(unit) = w.units[0].as_mut() {
+            if let Some(Ok(count)) = unit.reply
+                && (count == 0 || count as usize > unit.issued)
+            {
+                // The request left the client, but this reply establishes no
+                // accepted prefix. Preserve that uncertainty through teardown.
+                unit.outcome = Some(Custody::Unknown);
+                return Err(ShellClientError::Protocol("unexpected slot write reply"));
+            }
             let Some(reply) = unit.reply.take() else {
                 break;
             };

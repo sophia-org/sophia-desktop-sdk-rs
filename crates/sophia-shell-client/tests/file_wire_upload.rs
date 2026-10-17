@@ -597,3 +597,17 @@ fn contradictory_tail_acceptance_is_preserved_and_stops_the_connection() {
     assert_eq!(c.custody(tickets[1]), Some(Custody::Stored));
     assert_eq!(p.upload_offsets.len(), 4);
 }
+
+#[test]
+fn invalid_write_counts_fail_without_claiming_unsent_bytes() {
+    for count in [0, 32769] {
+        let (mut c, mut p, tickets) = held_window(&[]);
+        let held = std::mem::take(&mut p.held_replies);
+        p.answer_write(held[0].1, count);
+        assert!(c.poll_io().is_err());
+        for ticket in tickets {
+            assert_eq!(c.custody(ticket), Some(Custody::Unknown));
+        }
+        assert_eq!(p.upload_offsets.len(), 4);
+    }
+}
