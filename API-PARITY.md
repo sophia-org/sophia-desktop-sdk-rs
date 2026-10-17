@@ -1,5 +1,36 @@
 # C and Rust SDK API parity
 
+## Proposed sealed lifecycle peer, 2026-10-17
+
+`descriptor_custody` exercises proposed Sophia x6jp929h at `0f3289c2e`.
+It is a test-side producer/owner model, not an exported SDK or authenticated
+9P endpoint. Source packets use the proposed 200-byte layout and real local
+SEQPACKET/SCM_RIGHTS with sealed files for both role codes. Control admission,
+Ready/Closed events, terminal journal consumption and worker completion are
+explicit fixture calls; SourceReleased has an independent record decoder.
+Peer credentials are supplied as a test predicate, not established by a launch.
+The source metadata fixes one grant/allocation and an eight-byte image.
+
+The peer covers the Ready and Admitted barriers, denied versus absent discovery,
+two snapshot mismatches with one attempt per drive pass and a startup deadline,
+monotonic IDs/exhaustion, socket EAGAIN plus POLLOUT, uncertain-send no-replay,
+stale and duplicate packets, missing/extra received rights, cancellation before
+receive/after receive/during validation, expiry, channel loss, journal loss,
+terminal reservations, and retained backing leases. Terminal reservation and
+backing-byte budgets are separate; ordinary transaction/admission journal
+traffic is outside this ledger. A cancelled validation retains its FD and charge
+until the fixture worker returns. No release is invented on a dead journal.
+The existing kernel/decoder targets separately exercise truncation, seal variants,
+wrong sizes and the complete draft vector corpus.
+
+Snapshot replacement is a policy model over immutable owned bytes, not a
+multi-read production export test. No GPU operation, capture/quarantine safety,
+authenticated Hello, cross-process owner or public event-loop implementation
+is proved. The test does not make the draft normative or complete t337's
+acceptance gate. C peer implementation and cross-review are in progress in an
+independent worktree; parity must be checked against its signed result before
+any adoption. No public API, ABI, spec copy or Sophia vendor pin changes here.
+
 ## Draft image codec fixtures, 2026-10-17
 
 Independent test-only decoders exercise 53 reviewed vectors from proposed Sophia
