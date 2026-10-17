@@ -1,5 +1,17 @@
 # C and Rust SDK API parity
 
+## Cumulative shell ACK scheduling, 2026-10-17
+
+Rust's automatic mode now gathers consumed records until the bounded drive
+would yield, or until the next transaction needs its covering ACK. Manual mode,
+object holds and I/O budgets are unchanged; there is no delay timer. C already
+coalesces consumed records in its explicit `sophia_ss_ack` call. Its caller keeps
+choosing that boundary; no automatic ACK is introduced into a manual API.
+Independent tests in both SDKs consume three records and send one cumulative
+ACK. Existing snapshot-hold and custody-barrier controls pass. This is an
+internal automatic-policy optimization in Rust, with the equivalent explicit
+operation tested in C; it does not establish a native request-count reduction.
+
 ## Reusable shell transaction writer, 2026-10-17
 
 The optional `transaction-reuse` node follows signed Sophia `ee22309ba`.
