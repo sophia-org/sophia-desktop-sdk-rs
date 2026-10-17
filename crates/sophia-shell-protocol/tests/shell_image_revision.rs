@@ -159,3 +159,22 @@ fn image_objects_do_not_enter_legacy_object_published() {
         );
     }
 }
+
+#[test]
+fn existing_descriptor_candidates_keep_legacy_receipts() {
+    for candidate_kind in [
+        ShellFileKind::DescriptorCandidate,
+        ShellFileKind::DescriptorActivationAck,
+        ShellFileKind::TabsCandidate,
+        ShellFileKind::ReferenceCandidate,
+        ShellFileKind::LauncherCandidate,
+        ShellFileKind::LauncherActivationAck,
+    ] {
+        let value = ShellFileSubmitted {
+            submission_id: 1,
+            candidate_kind,
+        };
+        let bytes = encode_shell_file_submitted(header(ShellFileKind::Submitted), value).unwrap();
+        assert_eq!(decode_shell_file_submitted(&bytes).unwrap(), value);
+    }
+}
