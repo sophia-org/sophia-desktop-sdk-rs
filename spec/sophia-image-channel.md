@@ -559,4 +559,3 @@ Other permission, size, stale-allocation and budget refusals retain their role's
 existing meanings. Malformed transaction bytes keep ordinary submit errors.
 ChannelClosed is the prompt state-change notification; this rejection covers
 the race between observing readiness and submitting the next offer.
-
