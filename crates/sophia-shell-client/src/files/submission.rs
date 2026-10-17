@@ -95,6 +95,7 @@ impl FileWire {
                     submit: Vec::new(),
                     phase,
                     submitted: false,
+                    accepted: false,
                 }
             }
             QueuedKind::SlotWrite { resource, offset } => Current::SlotWrite {
@@ -355,11 +356,22 @@ impl FileWire {
             submission_id,
             submit,
             phase,
+            accepted,
             ..
         }) = &mut self.current
         else {
             return Ok(false);
         };
+        let is_submit = match phase {
+            SubmissionPhase::WritePair { submit_tag, .. } => tag == *submit_tag,
+            SubmissionPhase::WriteSubmit {
+                tag: submit_tag, ..
+            } => tag == *submit_tag,
+            _ => false,
+        };
+        if is_submit && matches!(reply, Reply::Write(n) if *n as usize == submit.len()) {
+            *accepted = true;
+        }
         if let SubmissionPhase::WritePair {
             record_tag,
             submit_tag,

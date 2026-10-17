@@ -144,6 +144,9 @@ enum Current {
         /// The `Submitted` event for this submission was observed (it may
         /// precede the `submit` reply). Custody is then settled for good.
         submitted: bool,
+        /// A complete submit reply establishes custody even if the journal
+        /// or the paired record reply is lost before disconnect.
+        accepted: bool,
     },
     SlotWrite {
         resource: ContentResourceId,

@@ -131,7 +131,8 @@ impl FileWire {
             let current = match &self.current {
                 Some(Current::Submission {
                     submitted: true, ..
-                }) => Some(Custody::Submitted),
+                })
+                | Some(Current::Submission { accepted: true, .. }) => Some(Custody::Submitted),
                 Some(Current::Submission {
                     phase:
                         SubmissionPhase::WritePair { .. }

@@ -189,3 +189,32 @@ fn early_submitted_survives_a_failed_pair() {
         assert!(peer.submits.is_empty());
     }
 }
+
+#[test]
+fn accepted_submit_survives_disconnect_without_record_reply_or_journal() {
+    for reuse in [false, true] {
+        for record_replied in [false, true] {
+            let (mut connection, mut peer) = if reuse {
+                let (connection, peer) = reusable(None);
+                (connection.unwrap(), peer)
+            } else {
+                connect(bar(0))
+            };
+            peer.hold_transactions = true;
+            let ticket = enqueue_demand(&mut connection, 1);
+            let held = submit(&mut connection, &mut peer);
+            let record = peer.held_transactions.pop_front().unwrap();
+            if record_replied {
+                peer.answer_write(record.tag, record.data.len() as u32);
+            }
+            peer.answer_write(held.tag, held.data.len() as u32);
+            connection.poll_io().unwrap();
+            assert_eq!(connection.custody(ticket), Some(Custody::InFlight));
+            peer.close();
+            assert_eq!(
+                settle(&mut connection, &mut peer, ticket).0,
+                Custody::Submitted
+            );
+        }
+    }
+}
