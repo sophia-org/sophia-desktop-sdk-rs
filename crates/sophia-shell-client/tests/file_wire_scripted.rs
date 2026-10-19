@@ -28,6 +28,8 @@ mod admission;
 mod batch;
 #[path = "support/file_wire_journal.rs"]
 mod journal;
+#[path = "support/file_wire_observation_timing.rs"]
+mod observation_timing;
 #[path = "support/transaction_reuse.rs"]
 mod transaction_reuse;
 const EINVAL: u32 = 22;

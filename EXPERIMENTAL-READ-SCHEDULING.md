@@ -38,6 +38,12 @@ observable scheduling changes, not claims of identical call-by-call timing.
 Wire records, byte order, ACK contents, custody classification rules, authority
 checks and image-source handling remain unchanged.
 
+Reading EOF does not require that drive to return an error. FileWire can return
+`Ok` after processing a final valid Submitted event and settling custody, while
+`take_content` and `io_interest` report `PeerClosed`. Callers must follow those
+existing receive and readiness results, not assume a particular drive reports
+`PeerClosed` itself.
+
 ## Controls and remaining gates
 
 The pipeline scheduling controls use socket pairs with replies queued before
@@ -49,11 +55,14 @@ journal, retry, batch and dispatch tests also run with the feature enabled.
 
 The shell dispatch control also checks bounded event delivery and immediate
 service interest while buffered events remain, with the feature on and off.
-It does not force the deferred-write/peer-close interleaving at the FileWire
-boundary. Before qualification, a scripted FileWire control must pin the
-caller-visible closure, Submitted custody, ACK-pending and EAGAIN retry-time
-observations described above; pipeline controls alone do not prove those
-integration observations.
+Three public FileWire controls deliberately leave queued input unread with zero
+I/O credit, then service it in a later dispatch. In both feature modes they pin
+final Submitted custody and the closure API sequence, pending versus confirmed
+ACKs, and EAGAIN retry deadlines derived from observation time. They establish
+the delayed-input contract independently of the pipeline deferral controls.
+They do not force the deferred-write/peer-close interleaving inside a FileWire
+drive; that integration interleaving remains untested. In particular, a
+background-thread timing race would not supply deterministic evidence of it.
 
 These deterministic controls do not establish a CPU improvement. A feature-on
 versus feature-off native CPU comparison and the applicable Sophia export gates
