@@ -1,4 +1,5 @@
 //! Opt-in local syscall-wrapper diagnostic; no native performance verdict.
+#![cfg(target_os = "linux")]
 use std::hint::black_box;
 use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;
