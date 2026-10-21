@@ -1144,13 +1144,16 @@ impl ShellImageDiscovery {
         {
             return Err(invalid("coherence"));
         }
-        let sealed = self.source_kinds & 1 != 0;
-        let dma_buf = self.source_kinds & 2 != 0;
+        // Both CPU source kinds (sealed memory and the owned ring)
+        // are served by the validation worker; DMA-BUF is not.
+        let cpu = self.source_kinds
+            & (SHELL_IMAGE_SOURCE_SEALED_MEMORY | SHELL_IMAGE_SOURCE_OWNED_RING)
+            != 0;
+        let dma_buf = self.source_kinds & SHELL_IMAGE_SOURCE_DMA_BUF != 0;
         if !formats.rows.is_empty() && !dma_buf {
             return Err(invalid("formats_unsupported"));
         }
-        if sealed != (limits.max_validation_jobs != 0) || dma_buf != (limits.max_capture_jobs != 0)
-        {
+        if cpu != (limits.max_validation_jobs != 0) || dma_buf != (limits.max_capture_jobs != 0) {
             return Err(invalid("capacity"));
         }
         if limits.max_resource_bytes > role_bounds.max_resource_bytes

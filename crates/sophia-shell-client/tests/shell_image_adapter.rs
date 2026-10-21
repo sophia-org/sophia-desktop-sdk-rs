@@ -210,6 +210,27 @@ fn no_adapter_connection_refuses_uploads() {
 }
 
 #[test]
+fn refused_control_open_clunks_its_fid() {
+    let (mut connection, mut peer, dir, listener) = connect_image("open-refused");
+    peer.control_open_error = Some(13);
+    let _accepted = drive_to_image_hello(&mut connection, &mut peer, &listener);
+    push_channel_ready(&mut peer);
+    drive(&mut connection, &mut peer, |connection, _| {
+        connection.image_adapter().unwrap().channel() == Some(ImageChannelState::Closed)
+    });
+    assert_eq!(
+        connection.image_adapter().unwrap().cause(),
+        Some(ImageCloseCause::Fault)
+    );
+    assert!(peer.clunks >= 1, "the refused fid was clunked");
+    assert_eq!(
+        connection.image_upload_ring(upload(), &[0u8; 8], Instant::now()),
+        Err(ImageAdapterError::Closed)
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn ring_refused_is_final_before_any_upload() {
     let (mut connection, mut peer, dir, listener) = connect_image("refused");
     let _accepted = drive_to_channel_ready(&mut connection, &mut peer, &listener);

@@ -352,6 +352,16 @@ impl FileWire {
                     Err(_) => finish(self, Err(sophia_9p_records::Errno::EIO.0)),
                 }
             }
+            (ControlPhase::Open, Reply::Error(errno)) => {
+                // A refused control open clunks the walked fid: the
+                // connection keeps no custody of it. The clunk reply
+                // is forgettable, like other custody-free clunks.
+                let errno = errno.0;
+                if let Ok(tag) = self.pipeline.clunk(write.fid) {
+                    self.forgettable.insert(tag);
+                }
+                finish(self, Err(errno))
+            }
             (ControlPhase::Open, Reply::Lopen { .. }) => {
                 self.control_fid = Some(write.fid);
                 match self.pipeline.write(write.fid, 0, &write.bytes) {

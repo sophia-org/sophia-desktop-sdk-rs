@@ -442,7 +442,7 @@ pub(super) fn status_body(
 /// Drive discovery and Hello, answer ChannelReady with kind 4, and
 /// return the accepted image socket. The Register record is left in
 /// `peer.control_writes` for the caller's assertions.
-pub(super) fn drive_to_channel_ready(
+pub(super) fn drive_to_image_hello(
     connection: &mut ShellConnection,
     peer: &mut Peer,
     listener: &OwnedFd,
@@ -454,6 +454,10 @@ pub(super) fn drive_to_channel_ready(
     let (hello, hello_fds) = recv_packet(&accepted);
     assert_eq!(hello.len(), 40);
     assert!(hello_fds.is_empty());
+    accepted
+}
+
+pub(super) fn push_channel_ready(peer: &mut Peer) {
     let ready = ShellChannelReady {
         channel_generation: 3,
         granted_source_kinds: 4,
@@ -462,6 +466,15 @@ pub(super) fn drive_to_channel_ready(
     .unwrap();
     let bytes = peer.event_image(ShellFileKind::ChannelReady, &ready);
     peer.push(bytes);
+}
+
+pub(super) fn drive_to_channel_ready(
+    connection: &mut ShellConnection,
+    peer: &mut Peer,
+    listener: &OwnedFd,
+) -> OwnedFd {
+    let accepted = drive_to_image_hello(connection, peer, listener);
+    push_channel_ready(peer);
     drive(connection, peer, |_, peer| !peer.control_writes.is_empty());
     accepted
 }
