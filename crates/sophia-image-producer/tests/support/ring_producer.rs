@@ -79,6 +79,13 @@ fn released(offer_id: u64, generation: u64) -> RingEvent {
     }
 }
 
+fn released_with_reason(offer_id: u64, generation: u64, reason: u16) -> RingEvent {
+    RingEvent {
+        reason,
+        ..released(offer_id, generation)
+    }
+}
+
 #[test]
 fn settled_only_after_status_and_exact_release() {
     let mut producer = ready();
@@ -109,7 +116,9 @@ fn settled_only_after_status_and_exact_release() {
         producer.offer(offer2).unwrap().state,
         RingOfferState::Pending
     );
-    producer.ring_event(released(offer2, 4), 8).unwrap();
+    producer
+        .ring_event(released_with_reason(offer2, 4, 1), 8)
+        .unwrap();
     assert_eq!(
         producer.offer(offer2).unwrap().state,
         RingOfferState::Refused
@@ -147,28 +156,70 @@ fn failed_control_reply_status_does_not_spend_settlement() {
 }
 
 #[test]
-fn final_status_before_release_governs_settlement() {
+fn failed_reply_after_acceptance_cannot_poison_success_release() {
+    let mut producer = ready();
+    let (offer, _) = producer.upload(upload(), &[9u8; 8], 3).unwrap();
+    // The genuine final status arrives first; a failed control reply
+    // (a second retire, a stale cancel) follows it. Neither first nor
+    // last status governs: the successful release selects the
+    // compatible Accepted evidence.
+    producer
+        .resource_status(11, 1, ResourceStatusKind::Accepted, 4)
+        .unwrap();
+    producer
+        .resource_status(11, 1, ResourceStatusKind::Rejected, 5)
+        .unwrap();
+    assert_eq!(
+        producer.offer(offer).unwrap().state,
+        RingOfferState::Pending
+    );
+    producer.ring_event(released(offer, 2), 6).unwrap();
+    assert_eq!(
+        producer.offer(offer).unwrap().state,
+        RingOfferState::Settled
+    );
+    assert!(!producer.closed());
+    // A status after settlement is ignored, not a fault.
+    producer
+        .resource_status(11, 1, ResourceStatusKind::Rejected, 7)
+        .unwrap();
+    assert_eq!(
+        producer.offer(offer).unwrap().state,
+        RingOfferState::Settled
+    );
+}
+
+#[test]
+fn release_without_compatible_evidence_fails_the_ring() {
+    // A refusal release with only Accepted observed has no compatible
+    // evidence to select.
     let mut producer = ready();
     let (offer, _) = producer.upload(upload(), &[9u8; 8], 3).unwrap();
     producer
         .resource_status(11, 1, ResourceStatusKind::Accepted, 4)
         .unwrap();
-    // The last status before the release is the final one.
-    producer
-        .resource_status(11, 1, ResourceStatusKind::Rejected, 5)
-        .unwrap();
-    producer.ring_event(released(offer, 2), 6).unwrap();
     assert_eq!(
-        producer.offer(offer).unwrap().state,
-        RingOfferState::Refused
+        producer.ring_event(released_with_reason(offer, 2, 1), 5),
+        Err(ProducerError::Closed)
     );
-    // A status after settlement is ignored, not a fault.
-    producer
-        .resource_status(11, 1, ResourceStatusKind::Accepted, 7)
-        .unwrap();
     assert_eq!(
         producer.offer(offer).unwrap().state,
-        RingOfferState::Refused
+        RingOfferState::Unknown
+    );
+    // A success release with only Rejected observed likewise faults
+    // instead of guessing an outcome.
+    let mut producer = ready();
+    let (offer, _) = producer.upload(upload(), &[9u8; 8], 3).unwrap();
+    producer
+        .resource_status(11, 1, ResourceStatusKind::Rejected, 4)
+        .unwrap();
+    assert_eq!(
+        producer.ring_event(released(offer, 2), 5),
+        Err(ProducerError::Closed)
+    );
+    assert_eq!(
+        producer.offer(offer).unwrap().state,
+        RingOfferState::Unknown
     );
 }
 

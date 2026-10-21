@@ -141,6 +141,42 @@ fn failed_retire_replies_do_not_spend_ring_settlement() {
 }
 
 #[test]
+fn failed_reply_after_final_status_cannot_poison_settlement() {
+    let (mut connection, mut peer, dir, listener) = connect_image("reply-after-final");
+    let accepted = drive_to_channel_ready(&mut connection, &mut peer, &listener);
+    let (source_fd, _) = drive_to_ring_ready(&mut connection, &mut peer, &accepted);
+    drop(source_fd);
+    let offer = connection
+        .image_upload_ring(upload(), &[3u8; 8], Instant::now())
+        .unwrap();
+    drive(&mut connection, &mut peer, |_, peer| {
+        peer.control_writes.len() == 2
+    });
+    // The genuine final status arrives first, then a failed control
+    // reply under an unrelated transaction. The exact successful
+    // SlotReleased selects the Accepted evidence and settles.
+    let bytes = peer.event(ShellFileKind::ResourceStatus, &status_body(offer, 21, 1, 2));
+    peer.push(bytes);
+    let bytes = peer.event(ShellFileKind::ResourceStatus, &status_body(555, 21, 1, 3));
+    peer.push(bytes);
+    drive(&mut connection, &mut peer, |connection, _| {
+        connection.image_ring_offer(offer).unwrap().status
+            == Some(sophia_image_producer::ResourceStatusKind::Rejected)
+    });
+    assert_eq!(
+        connection.image_ring_offer(offer).unwrap().state,
+        RingOfferState::Pending
+    );
+    let released = ring_released(peer.take_sequence(), offer, 2, 21, 1, 0);
+    peer.push(released);
+    drive(&mut connection, &mut peer, |connection, _| {
+        connection.image_ring_offer(offer).unwrap().state == RingOfferState::Settled
+    });
+    connection.image_forget(offer).unwrap();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn release_before_status_fails_the_ring() {
     let (mut connection, mut peer, dir, listener) = connect_image("order2");
     let accepted = drive_to_channel_ready(&mut connection, &mut peer, &listener);

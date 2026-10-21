@@ -4,12 +4,13 @@
 //! slot and an offer is adoptable only after its successful
 //! `ResourceStatus` and the matching successful `SlotReleased`.
 //! The final status must precede the release; an exact release seen
-//! before any final status is a Session ordering violation that
-//! fails the ring and makes live offers unknown. Status is matched
-//! by grant and resource
-//! identity, never by transaction alone (a cancellation may carry the
-//! cancel transaction); failed control replies are not settlement and
-//! never touch slot custody. Only the exact `SlotReleased` frees a slot.
+//! before any status is a Session ordering violation that fails the
+//! ring and makes live offers unknown. Status is matched by grant and
+//! resource identity, never by transaction alone (a cancellation may
+//! carry the cancel transaction); failed control replies are not
+//! settlement and never touch slot custody: observed status kinds
+//! accumulate and the release's own reason selects the compatible
+//! evidence. Only the exact `SlotReleased` frees a slot.
 //!
 //! Like [`ImageProducer`](crate::ImageProducer), this producer never
 //! uses 9P: the role client writes the control bytes this type returns
@@ -110,9 +111,27 @@ struct Offer {
     generation: u64,
     state: Option<RingOfferState>,
     status: Option<ResourceStatusKind>,
+    /// Bounded evidence set of observed terminal status kinds
+    /// (bit per kind; only three kinds exist). Settlement at the
+    /// exact release picks the evidence compatible with the
+    /// release's own reason, because failed control replies share
+    /// the status kind and carry no store provenance.
+    statuses: u8,
     released: bool,
     deadline_ms: u64,
     deadline_passed: bool,
+}
+
+const STATUS_ACCEPTED: u8 = 1;
+const STATUS_REJECTED: u8 = 2;
+const STATUS_CANCELLED: u8 = 4;
+
+fn status_bit(kind: ResourceStatusKind) -> u8 {
+    match kind {
+        ResourceStatusKind::Accepted => STATUS_ACCEPTED,
+        ResourceStatusKind::Rejected => STATUS_REJECTED,
+        ResourceStatusKind::Cancelled => STATUS_CANCELLED,
+    }
 }
 
 /// The owned-ring producer state machine. See the module documentation.
@@ -297,21 +316,35 @@ impl RingProducer {
             return Err(self.fault_unknown());
         }
         // The contract's settlement order is final status, then release.
-        // An otherwise exact release with no final status is therefore a
-        // Session ordering violation, not an early settlement phase.
-        if offer.status.is_none() {
+        // An otherwise exact release with no observed status is therefore
+        // a Session ordering violation, not an early settlement phase.
+        if offer.statuses == 0 {
             return Err(self.fault_unknown());
         }
+        // The release is authoritative for custody; its reason selects
+        // the compatible observed evidence. Success (reason 0, no
+        // changed generation) requires an observed Accepted; a refusal
+        // or cancellation release requires observed Rejected or
+        // Cancelled. No compatible evidence is a Session ordering
+        // violation, never a guessed settlement.
+        let settled = if event.reason == 0 && !event.changed_generation {
+            if offer.statuses & STATUS_ACCEPTED == 0 {
+                return Err(self.fault_unknown());
+            }
+            true
+        } else {
+            if offer.statuses & (STATUS_REJECTED | STATUS_CANCELLED) == 0 {
+                return Err(self.fault_unknown());
+            }
+            false
+        };
         self.offers[index].released = true;
         self.free_slot(offer.slot, offer.offer_id);
-        match (offer.status, event.reason, event.changed_generation) {
-            (Some(ResourceStatusKind::Accepted), 0, false) => {
-                self.offers[index].state = Some(RingOfferState::Settled);
-            }
-            _ => {
-                self.offers[index].state = Some(RingOfferState::Refused);
-            }
-        }
+        self.offers[index].state = Some(if settled {
+            RingOfferState::Settled
+        } else {
+            RingOfferState::Refused
+        });
         Ok(())
     }
 
@@ -487,6 +520,7 @@ impl RingProducer {
             generation,
             state: Some(RingOfferState::Pending),
             status: None,
+            statuses: 0,
             released: false,
             deadline_ms: now_ms.saturating_add(u64::from(self.config.transfer_timeout_ms)),
             deadline_passed: false,
@@ -529,13 +563,16 @@ impl RingProducer {
 
     /// Forward a `ResourceStatus` for an offer's resource, matched by
     /// grant and resource identity only. A status never settles on its
-    /// own: the offer settles or refuses only at the exact
-    /// `SlotReleased` that must follow the *final* status. Failed
-    /// control replies (for example a refused `ResourceRetire`) share
-    /// this record kind but carry no store provenance on the wire, so
-    /// a later status supersedes an earlier one and only the last
-    /// status before the release governs settlement. A release seen
-    /// before any status at all faults in
+    /// own. Failed control replies (for example a refused
+    /// `ResourceRetire` or `ResourceCancel`) share this record kind
+    /// but carry no store provenance on the wire, and they can arrive
+    /// before or after the genuine final status. Observed kinds are
+    /// therefore accumulated (a bounded three-kind set), and the
+    /// exact `SlotReleased` that must follow selects the evidence
+    /// compatible with its own reason: success requires an observed
+    /// Accepted, refusal or cancellation an observed Rejected or
+    /// Cancelled. A release seen before any status at all, or with
+    /// no compatible evidence, faults in
     /// [`ring_event`](Self::ring_event) instead.
     pub fn resource_status(
         &mut self,
@@ -553,10 +590,12 @@ impl RingProducer {
         }) else {
             return Ok(());
         };
-        // Latest status wins: settlement reads the final status at
-        // the exact release, so a failed control reply recorded here
-        // cannot spend the offer's settlement.
+        // Accumulate evidence; settlement at the exact release
+        // picks the kind compatible with the release reason, so a
+        // failed control reply recorded here can neither spend the
+        // offer's settlement nor poison a genuine success.
         self.offers[index].status = Some(status);
+        self.offers[index].statuses |= status_bit(status);
         Ok(())
     }
 
