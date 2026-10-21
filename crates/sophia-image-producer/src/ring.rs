@@ -123,6 +123,14 @@ struct Offer {
 }
 
 const STATUS_ACCEPTED: u8 = 1;
+fn reported_status(offer: &Offer) -> Option<ResourceStatusKind> {
+    if offer.statuses & STATUS_ACCEPTED != 0 {
+        Some(ResourceStatusKind::Accepted)
+    } else {
+        offer.status
+    }
+}
+
 const STATUS_REJECTED: u8 = 2;
 const STATUS_CANCELLED: u8 = 4;
 
@@ -322,24 +330,39 @@ impl RingProducer {
             return Err(self.fault_unknown());
         }
         // The release is authoritative for custody; its reason selects
-        // the compatible observed evidence. Success (reason 0, no
-        // changed generation) requires an observed Accepted; a refusal
-        // or cancellation release requires observed Rejected or
-        // Cancelled. No compatible evidence is a Session ordering
+        // the compatible observed evidence, because the runtime pins
+        // the terminal status kind to the release reason: success
+        // (reason 0, no changed generation) requires an observed
+        // Accepted, a cancellation release (reason
+        // `ContentReason::Cancelled`) requires an observed Cancelled,
+        // and every other refusal release requires an observed
+        // Rejected. No compatible evidence is a Session ordering
         // violation, never a guessed settlement.
-        let settled = if event.reason == 0 && !event.changed_generation {
+        let cancelled_reason =
+            event.reason == sophia_shell_protocol::ContentReason::Cancelled as u16;
+        let (settled, chosen) = if event.reason == 0 && !event.changed_generation {
             if offer.statuses & STATUS_ACCEPTED == 0 {
                 return Err(self.fault_unknown());
             }
-            true
-        } else {
-            if offer.statuses & (STATUS_REJECTED | STATUS_CANCELLED) == 0 {
+            (true, ResourceStatusKind::Accepted)
+        } else if cancelled_reason && !event.changed_generation {
+            if offer.statuses & STATUS_CANCELLED == 0 {
                 return Err(self.fault_unknown());
             }
-            false
+            (false, ResourceStatusKind::Cancelled)
+        } else {
+            if offer.statuses & STATUS_REJECTED == 0 {
+                return Err(self.fault_unknown());
+            }
+            (false, ResourceStatusKind::Rejected)
         };
         self.offers[index].released = true;
         self.free_slot(offer.slot, offer.offer_id);
+        // Report the evidence the release selected, not whatever
+        // status happened to be observed last: a failed control
+        // reply after the genuine Accepted must not leave a Settled
+        // offer reporting Rejected.
+        self.offers[index].status = Some(chosen);
         self.offers[index].state = Some(if settled {
             RingOfferState::Settled
         } else {
@@ -570,10 +593,10 @@ impl RingProducer {
     /// therefore accumulated (a bounded three-kind set), and the
     /// exact `SlotReleased` that must follow selects the evidence
     /// compatible with its own reason: success requires an observed
-    /// Accepted, refusal or cancellation an observed Rejected or
-    /// Cancelled. A release seen before any status at all, or with
-    /// no compatible evidence, faults in
-    /// [`ring_event`](Self::ring_event) instead.
+    /// Accepted, a cancellation release an observed Cancelled, and
+    /// any other refusal release an observed Rejected. A release
+    /// seen before any status at all, or with no compatible
+    /// evidence, faults in [`ring_event`](Self::ring_event) instead.
     pub fn resource_status(
         &mut self,
         resource: u64,
@@ -623,7 +646,7 @@ impl RingProducer {
                 height: offer.upload.map_or(0, |upload| upload.height),
                 slot: offer.slot,
                 state: RingOfferState::Pending,
-                status: offer.status,
+                status: reported_status(offer),
                 deadline_passed: offer.deadline_passed,
             })
     }
@@ -670,7 +693,7 @@ impl RingProducer {
                 height: offer.upload.map_or(0, |upload| upload.height),
                 slot: offer.slot,
                 state: offer.state.unwrap_or(RingOfferState::Refused),
-                status: offer.status,
+                status: reported_status(offer),
                 deadline_passed: offer.deadline_passed,
             })
     }
@@ -688,7 +711,7 @@ impl RingProducer {
                 height: offer.upload.map_or(0, |upload| upload.height),
                 slot: offer.slot,
                 state: offer.state.unwrap_or(RingOfferState::Refused),
-                status: offer.status,
+                status: reported_status(offer),
                 deadline_passed: offer.deadline_passed,
             })
     }

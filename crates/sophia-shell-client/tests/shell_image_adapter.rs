@@ -154,14 +154,16 @@ fn failed_reply_after_final_status_cannot_poison_settlement() {
     });
     // The genuine final status arrives first, then a failed control
     // reply under an unrelated transaction. The exact successful
-    // SlotReleased selects the Accepted evidence and settles.
+    // SlotReleased selects the Accepted evidence and settles. The
+    // journal is FIFO, so the release queued now is processed only
+    // after both statuses.
     let bytes = peer.event(ShellFileKind::ResourceStatus, &status_body(offer, 21, 1, 2));
     peer.push(bytes);
     let bytes = peer.event(ShellFileKind::ResourceStatus, &status_body(555, 21, 1, 3));
     peer.push(bytes);
     drive(&mut connection, &mut peer, |connection, _| {
         connection.image_ring_offer(offer).unwrap().status
-            == Some(sophia_image_producer::ResourceStatusKind::Rejected)
+            == Some(sophia_image_producer::ResourceStatusKind::Accepted)
     });
     assert_eq!(
         connection.image_ring_offer(offer).unwrap().state,
@@ -172,6 +174,12 @@ fn failed_reply_after_final_status_cannot_poison_settlement() {
     drive(&mut connection, &mut peer, |connection, _| {
         connection.image_ring_offer(offer).unwrap().state == RingOfferState::Settled
     });
+    // Terminal info reports the selected Accepted evidence, not the
+    // last observed failed-reply status.
+    assert_eq!(
+        connection.image_ring_offer(offer).unwrap().status,
+        Some(sophia_image_producer::ResourceStatusKind::Accepted)
+    );
     connection.image_forget(offer).unwrap();
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -356,7 +364,7 @@ fn cancellation_settles_by_resource_never_adopts() {
     // offer id; matching is by grant and resource.
     let status = peer.event(ShellFileKind::ResourceStatus, &status_body(999, 21, 1, 4));
     peer.push(status);
-    let released = ring_released(peer.take_sequence(), offer, 2, 21, 1, 1);
+    let released = ring_released(peer.take_sequence(), offer, 2, 21, 1, 11);
     peer.push(released);
     drive(&mut connection, &mut peer, |connection, _| {
         connection.image_ring_offer(offer).unwrap().state == RingOfferState::Refused

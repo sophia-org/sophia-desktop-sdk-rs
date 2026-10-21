@@ -339,7 +339,9 @@ fn rejected_and_cancelled_offers_never_become_placeable() {
         let mut r = Rig::new(&format!("native-refused-{status}"));
         let offer = r.begin(21);
         r.status(offer, 21, status);
-        r.release(offer, 21, 1);
+        // The runtime pins the release reason to the status kind:
+        // Cancelled travels with reason 11, Rejected with any other.
+        r.release(offer, 21, if status == 4 { 11 } else { 1 });
         assert!(r.adopt(offer).is_err());
         assert_eq!(r.lifecycle.resource_state(Rig::resource(21)), None);
         assert!(r.connection.image_ring_offer(offer).is_some());

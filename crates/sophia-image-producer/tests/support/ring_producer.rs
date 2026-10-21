@@ -117,7 +117,7 @@ fn settled_only_after_status_and_exact_release() {
         RingOfferState::Pending
     );
     producer
-        .ring_event(released_with_reason(offer2, 4, 1), 8)
+        .ring_event(released_with_reason(offer2, 4, 11), 8)
         .unwrap();
     assert_eq!(
         producer.offer(offer2).unwrap().state,
@@ -178,6 +178,12 @@ fn failed_reply_after_acceptance_cannot_poison_success_release() {
         producer.offer(offer).unwrap().state,
         RingOfferState::Settled
     );
+    // Terminal info reports the selected evidence, not the last
+    // observed (failed-reply) status.
+    assert_eq!(
+        producer.offer(offer).unwrap().status,
+        Some(ResourceStatusKind::Accepted)
+    );
     assert!(!producer.closed());
     // A status after settlement is ignored, not a fault.
     producer
@@ -215,6 +221,35 @@ fn release_without_compatible_evidence_fails_the_ring() {
         .unwrap();
     assert_eq!(
         producer.ring_event(released(offer, 2), 5),
+        Err(ProducerError::Closed)
+    );
+    assert_eq!(
+        producer.offer(offer).unwrap().state,
+        RingOfferState::Unknown
+    );
+    // The runtime pins kind to reason: a cancellation release
+    // (reason 11) with only Rejected observed has no compatible
+    // evidence, and a refusal release with only Cancelled neither.
+    let mut producer = ready();
+    let (offer, _) = producer.upload(upload(), &[9u8; 8], 3).unwrap();
+    producer
+        .resource_status(11, 1, ResourceStatusKind::Rejected, 4)
+        .unwrap();
+    assert_eq!(
+        producer.ring_event(released_with_reason(offer, 2, 11), 5),
+        Err(ProducerError::Closed)
+    );
+    assert_eq!(
+        producer.offer(offer).unwrap().state,
+        RingOfferState::Unknown
+    );
+    let mut producer = ready();
+    let (offer, _) = producer.upload(upload(), &[9u8; 8], 3).unwrap();
+    producer
+        .resource_status(11, 1, ResourceStatusKind::Cancelled, 4)
+        .unwrap();
+    assert_eq!(
+        producer.ring_event(released_with_reason(offer, 2, 3), 5),
         Err(ProducerError::Closed)
     );
     assert_eq!(
