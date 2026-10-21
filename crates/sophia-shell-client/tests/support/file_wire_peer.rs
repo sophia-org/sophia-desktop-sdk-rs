@@ -154,6 +154,8 @@ pub struct Peer {
     pub held_transactions: VecDeque<Held>,
     /// Every record written to `transaction`, in order.
     pub transactions: Vec<Vec<u8>>,
+    /// Every record written to `owned-ring-v1`, in order.
+    pub control_writes: Vec<Vec<u8>>,
     pub acks: Vec<Ack>,
     /// The count to answer `ack` writes with; the written length when unset.
     pub ack_reply: Option<u32>,
@@ -340,6 +342,7 @@ impl Peer {
             hold_transactions: false,
             held_transactions: VecDeque::new(),
             transactions: Vec::new(),
+            control_writes: Vec::new(),
             acks: Vec::new(),
             ack_reply: None,
             walks: Vec::new(),
@@ -433,6 +436,15 @@ impl Peer {
     /// The sequence the next event will carry.
     pub fn next_sequence(&self) -> u64 {
         self.next_sequence
+    }
+
+    /// Take the next journal sequence for a record built elsewhere
+    /// (D4E1 ring events share this sequence space).
+    #[allow(dead_code)]
+    pub fn take_sequence(&mut self) -> u64 {
+        let sequence = self.next_sequence;
+        self.next_sequence += 1;
+        sequence
     }
 
     /// One whole r9 image event record with the next sequence.
@@ -745,6 +757,10 @@ impl Peer {
                         self.answer_write(tag, count);
                     }
                     "submit" => self.submits.push_back(Held { tag, data }),
+                    "owned-ring-v1" => {
+                        self.control_writes.push(data);
+                        self.answer_write(tag, count);
+                    }
                     slot if slot.starts_with("upload/") => {
                         // Slot bytes land at the written offset, in order.
                         let offset = u64_at(&body, 4) as usize;
