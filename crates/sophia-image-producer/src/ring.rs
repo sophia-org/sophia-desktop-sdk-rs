@@ -124,7 +124,10 @@ struct Offer {
 
 const STATUS_ACCEPTED: u8 = 1;
 fn reported_status(offer: &Offer) -> Option<ResourceStatusKind> {
-    if offer.statuses & STATUS_ACCEPTED != 0 {
+    // While pending, an observed Accepted outranks later failed
+    // control replies. Once the release has selected the terminal
+    // evidence, the chosen status is authoritative.
+    if offer.state == Some(RingOfferState::Pending) && offer.statuses & STATUS_ACCEPTED != 0 {
         Some(ResourceStatusKind::Accepted)
     } else {
         offer.status
@@ -345,7 +348,11 @@ impl RingProducer {
                 return Err(self.fault_unknown());
             }
             (true, ResourceStatusKind::Accepted)
-        } else if cancelled_reason && !event.changed_generation {
+        } else if cancelled_reason {
+            // A changed generation is a read-failure flag the runtime
+            // sets independently of the stopped reason, so a cancelled
+            // offer can legitimately carry it; it is never adoptable
+            // either way, but still requires Cancelled evidence.
             if offer.statuses & STATUS_CANCELLED == 0 {
                 return Err(self.fault_unknown());
             }

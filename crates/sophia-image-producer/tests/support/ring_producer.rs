@@ -196,6 +196,35 @@ fn failed_reply_after_acceptance_cannot_poison_success_release() {
 }
 
 #[test]
+fn cancelled_release_with_changed_generation_still_refuses() {
+    let mut producer = ready();
+    let (offer, _) = producer.upload(upload(), &[9u8; 8], 3).unwrap();
+    // The runtime sets changed_generation from its read check
+    // independently of the stopped reason: a cancelled offer may
+    // carry it. It requires Cancelled evidence, is never adoptable,
+    // and its terminal info reports the chosen Cancelled status.
+    producer
+        .resource_status(11, 1, ResourceStatusKind::Cancelled, 4)
+        .unwrap();
+    let changed = RingEvent {
+        changed_generation: true,
+        ..released_with_reason(offer, 2, 11)
+    };
+    producer.ring_event(changed, 5).unwrap();
+    assert_eq!(
+        producer.offer(offer).unwrap().state,
+        RingOfferState::Refused
+    );
+    assert_eq!(
+        producer.offer(offer).unwrap().status,
+        Some(ResourceStatusKind::Cancelled)
+    );
+    // The slot freed normally for the next offer.
+    let (offer2, _) = producer.upload(upload(), &[9u8; 8], 6).unwrap();
+    assert_eq!(offer2, 2);
+}
+
+#[test]
 fn release_without_compatible_evidence_fails_the_ring() {
     // A refusal release with only Accepted observed has no compatible
     // evidence to select.
