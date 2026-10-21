@@ -41,10 +41,14 @@ fn upload() -> RingUpload {
 }
 
 fn ready() -> RingProducer {
+    ready_slots(0)
+}
+
+fn ready_slots(slots: u8) -> RingProducer {
     let mut producer = RingProducer::new(
         RingProducerConfig {
             identity: IDENTITY,
-            slots: 0,
+            slots,
             capacity: 0,
             max_resource_bytes: 4096,
             transfer_timeout_ms: 2000,
@@ -81,15 +85,15 @@ fn settled_only_after_status_and_exact_release() {
     let pixels = [9u8; 8];
     let (offer, bytes) = producer.upload(upload(), &pixels, 3).unwrap();
     assert_eq!(bytes.len(), 152);
-    // Release alone does not settle.
-    producer.ring_event(released(offer, 2), 4).unwrap();
+    // Status alone does not settle.
+    producer
+        .resource_status(11, 1, ResourceStatusKind::Accepted, 4)
+        .unwrap();
     assert_eq!(
         producer.offer(offer).unwrap().state,
         RingOfferState::Pending
     );
-    producer
-        .resource_status(11, 1, ResourceStatusKind::Accepted, 5)
-        .unwrap();
+    producer.ring_event(released(offer, 2), 5).unwrap();
     assert_eq!(
         producer.offer(offer).unwrap().state,
         RingOfferState::Settled
@@ -194,4 +198,37 @@ fn offer_id_exhaustion_closes_on_the_next_commit() {
         Err(ProducerError::Exhausted)
     );
     assert!(producer.closed());
+}
+
+#[test]
+fn release_before_status_fails_ring_and_makes_live_offers_unknown() {
+    let mut producer = ready_slots(2);
+    let (offer, _) = producer.upload(upload(), &[9u8; 8], 3).unwrap();
+    let mut second = upload();
+    second.resource = 12;
+    let (offer2, _) = producer.upload(second, &[9u8; 8], 4).unwrap();
+    // An exact release with no final status yet is a Session ordering
+    // violation: the ring fails and every live offer goes Unknown.
+    assert_eq!(
+        producer.ring_event(released(offer, 2), 5),
+        Err(ProducerError::Closed)
+    );
+    assert!(producer.closed());
+    assert_eq!(producer.cause(), CloseCause::Fault);
+    assert_eq!(
+        producer.offer(offer).unwrap().state,
+        RingOfferState::Unknown
+    );
+    assert_eq!(
+        producer.offer(offer2).unwrap().state,
+        RingOfferState::Unknown
+    );
+    // A late status cannot settle an Unknown offer.
+    producer
+        .resource_status(11, 1, ResourceStatusKind::Accepted, 6)
+        .unwrap();
+    assert_eq!(
+        producer.offer(offer).unwrap().state,
+        RingOfferState::Unknown
+    );
 }

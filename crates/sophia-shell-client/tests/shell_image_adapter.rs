@@ -93,7 +93,7 @@ fn ring_offer_runs_end_to_end() {
 }
 
 #[test]
-fn release_before_status_also_settles() {
+fn release_before_status_fails_the_ring() {
     let (mut connection, mut peer, dir, listener) = connect_image("order2");
     let accepted = drive_to_channel_ready(&mut connection, &mut peer, &listener);
     let (source_fd, _) = drive_to_ring_ready(&mut connection, &mut peer, &accepted);
@@ -104,16 +104,17 @@ fn release_before_status_also_settles() {
     drive(&mut connection, &mut peer, |_, peer| {
         peer.control_writes.len() == 2
     });
-    // Release first in one journal read, status after: wire order is
-    // preserved and settlement completes at the status.
+    // The contract orders final status before SlotReleased: an exact
+    // release with no status yet fails the ring, custody Unknown.
     let released = ring_released(peer.take_sequence(), offer, 2, 21, 1, 0);
-    let status = peer.event(ShellFileKind::ResourceStatus, &status_body(1, 21, 1, 2));
-    let mut journal = released;
-    journal.extend(status);
-    peer.push(journal);
+    peer.push(released);
     drive(&mut connection, &mut peer, |connection, _| {
-        connection.image_ring_offer(1).unwrap().state == RingOfferState::Settled
+        connection.image_ring_offer(offer).unwrap().state == RingOfferState::Unknown
     });
+    assert_eq!(
+        connection.image_adapter().unwrap().channel(),
+        Some(ImageChannelState::Closed)
+    );
     let _ = std::fs::remove_dir_all(dir);
 }
 

@@ -2,8 +2,11 @@
 //! source. One registration per connection fixes the slots and the
 //! per-slot capacity; each upload copies its exact bytes into a free
 //! slot and an offer is adoptable only after its successful
-//! `ResourceStatus` and the matching successful `SlotReleased`, in
-//! either arrival order. Status is matched by grant and resource
+//! `ResourceStatus` and the matching successful `SlotReleased`.
+//! The final status must precede the release; an exact release seen
+//! before any final status is a Session ordering violation that
+//! fails the ring and makes live offers unknown. Status is matched
+//! by grant and resource
 //! identity, never by transaction alone (a cancellation may carry the
 //! cancel transaction); failed control replies are not settlement and
 //! never touch slot custody. Only the exact `SlotReleased` frees a slot.
@@ -187,6 +190,15 @@ impl RingProducer {
         ProducerError::Closed
     }
 
+    fn fault_unknown(&mut self) -> ProducerError {
+        for offer in &mut self.offers {
+            if offer.state == Some(RingOfferState::Pending) {
+                offer.state = Some(RingOfferState::Unknown);
+            }
+        }
+        self.fault()
+    }
+
     /// The registration in force for this connection.
     pub fn registration_info(&self) -> RingRegistration {
         self.registration
@@ -273,34 +285,32 @@ impl RingProducer {
         let Some(index) = self.offers.iter().position(|offer| {
             offer.state == Some(RingOfferState::Pending) && offer.offer_id == event.offer_id
         }) else {
-            return Err(self.fault());
+            return Err(self.fault_unknown());
         };
         let offer = self.offers[index];
         let upload = offer.upload.ok_or(ProducerError::Closed)?;
-        // Only the exact successful release frees the slot, and a failed
-        // or changed release is never settlement.
         if event.slot != offer.slot
             || event.slot_generation != offer.generation
             || event.resource != upload.resource
             || event.resource_generation != upload.resource_generation
         {
-            return Err(self.fault());
+            return Err(self.fault_unknown());
         }
-        if event.reason != 0 || event.changed_generation {
-            self.offers[index].state = Some(RingOfferState::Refused);
-            self.free_slot(offer.slot, offer.offer_id);
-            return Ok(());
+        // The contract's settlement order is final status, then release.
+        // An otherwise exact release with no final status is therefore a
+        // Session ordering violation, not an early settlement phase.
+        if offer.status.is_none() {
+            return Err(self.fault_unknown());
         }
         self.offers[index].released = true;
         self.free_slot(offer.slot, offer.offer_id);
-        match self.offers[index].status {
-            Some(ResourceStatusKind::Accepted) => {
+        match (offer.status, event.reason, event.changed_generation) {
+            (Some(ResourceStatusKind::Accepted), 0, false) => {
                 self.offers[index].state = Some(RingOfferState::Settled);
             }
-            Some(ResourceStatusKind::Rejected | ResourceStatusKind::Cancelled) => {
+            _ => {
                 self.offers[index].state = Some(RingOfferState::Refused);
             }
-            None => {}
         }
         Ok(())
     }
@@ -518,10 +528,10 @@ impl RingProducer {
     }
 
     /// Forward a `ResourceStatus` for an offer's resource, matched by
-    /// grant and resource identity only. Combined with the exact
-    /// successful `SlotReleased`, an Accepted status makes the offer
-    /// settled and adoptable; a terminal status before release refuses
-    /// it but does not free the slot.
+    /// grant and resource identity only. The status is recorded; the
+    /// offer settles or refuses only at the exact `SlotReleased` that
+    /// must follow it. A release seen before any final status faults
+    /// in [`ring_event`](Self::ring_event) instead.
     pub fn resource_status(
         &mut self,
         resource: u64,
@@ -542,21 +552,6 @@ impl RingProducer {
             return Err(self.fault());
         }
         self.offers[index].status = Some(status);
-        match status {
-            ResourceStatusKind::Accepted => {
-                if self.offers[index].released {
-                    self.offers[index].state = Some(RingOfferState::Settled);
-                }
-            }
-            ResourceStatusKind::Rejected | ResourceStatusKind::Cancelled => {
-                // Not adoptable. Slot custody still ends only at the
-                // exact SlotReleased, which makes this Refused if the
-                // release already arrived.
-                if self.offers[index].released {
-                    self.offers[index].state = Some(RingOfferState::Refused);
-                }
-            }
-        }
         Ok(())
     }
 

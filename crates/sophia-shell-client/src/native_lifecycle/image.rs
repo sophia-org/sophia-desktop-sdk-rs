@@ -110,8 +110,8 @@ impl ShellConnection {
         {
             return Err(invalid());
         }
-        // Settled already proves the successful status and the exact
-        // successful SlotReleased, in either order. Recheck the
+        // Settled already proves the successful status followed by
+        // the exact successful SlotReleased. Recheck the
         // lifecycle's own bounds here.
         let resource = ContentResourceId {
             id: info.resource,
