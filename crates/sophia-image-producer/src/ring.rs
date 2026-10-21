@@ -528,10 +528,15 @@ impl RingProducer {
     }
 
     /// Forward a `ResourceStatus` for an offer's resource, matched by
-    /// grant and resource identity only. The status is recorded; the
-    /// offer settles or refuses only at the exact `SlotReleased` that
-    /// must follow it. A release seen before any final status faults
-    /// in [`ring_event`](Self::ring_event) instead.
+    /// grant and resource identity only. A status never settles on its
+    /// own: the offer settles or refuses only at the exact
+    /// `SlotReleased` that must follow the *final* status. Failed
+    /// control replies (for example a refused `ResourceRetire`) share
+    /// this record kind but carry no store provenance on the wire, so
+    /// a later status supersedes an earlier one and only the last
+    /// status before the release governs settlement. A release seen
+    /// before any status at all faults in
+    /// [`ring_event`](Self::ring_event) instead.
     pub fn resource_status(
         &mut self,
         resource: u64,
@@ -548,9 +553,9 @@ impl RingProducer {
         }) else {
             return Ok(());
         };
-        if self.offers[index].status.is_some() {
-            return Err(self.fault());
-        }
+        // Latest status wins: settlement reads the final status at
+        // the exact release, so a failed control reply recorded here
+        // cannot spend the offer's settlement.
         self.offers[index].status = Some(status);
         Ok(())
     }

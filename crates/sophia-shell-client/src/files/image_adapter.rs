@@ -855,12 +855,18 @@ impl ImageAdapter {
                         ShellFileClass, ShellFileKind, ShellImageDiscovery, ShellImageFormats,
                         ShellImageLimits, decode_shell_file_record_at_revision,
                     };
-                    let limits_record =
-                        decode_shell_file_record_at_revision(&limits, ShellFileClass::Object, 9)
-                            .ok()?;
-                    let formats_record =
-                        decode_shell_file_record_at_revision(&formats, ShellFileClass::Object, 9)
-                            .ok()?;
+                    let limits_record = decode_shell_file_record_at_revision(
+                        &limits,
+                        ShellFileClass::Object,
+                        sophia_shell_protocol::SOPHIA_SHELL_OWNED_RING_REVISION,
+                    )
+                    .ok()?;
+                    let formats_record = decode_shell_file_record_at_revision(
+                        &formats,
+                        ShellFileClass::Object,
+                        sophia_shell_protocol::SOPHIA_SHELL_OWNED_RING_REVISION,
+                    )
+                    .ok()?;
                     if limits_record.header.kind != ShellFileKind::ImageLimits
                         || formats_record.header.kind != ShellFileKind::ImageFormats
                     {

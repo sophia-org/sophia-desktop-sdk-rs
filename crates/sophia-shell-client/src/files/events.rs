@@ -234,7 +234,7 @@ impl FileWire {
                 decode_shell_file_record_at_revision(
                     &self.event_buf[..size],
                     ShellFileClass::Event,
-                    9,
+                    sophia_shell_protocol::SOPHIA_SHELL_OWNED_RING_REVISION,
                 )?
                 .header,
             )
@@ -338,8 +338,11 @@ impl FileWire {
             return Ok((event.sequence, Event::Image(ImageEvent::Ring(event))));
         }
         if self.image_enabled
-            && let Ok(parsed) =
-                decode_shell_file_record_at_revision(record, ShellFileClass::Event, 9)
+            && let Ok(parsed) = decode_shell_file_record_at_revision(
+                record,
+                ShellFileClass::Event,
+                sophia_shell_protocol::SOPHIA_SHELL_OWNED_RING_REVISION,
+            )
             && matches!(
                 parsed.header.kind,
                 ShellFileKind::ChannelReady
@@ -458,7 +461,8 @@ impl FileWire {
             ShellFileKind::Submitted => {
                 let value = if self.image_enabled {
                     sophia_shell_protocol::shell_files::decode_shell_file_submitted_at_revision(
-                        record, 9,
+                        record,
+                        sophia_shell_protocol::SOPHIA_SHELL_OWNED_RING_REVISION,
                     )?
                 } else {
                     decode_shell_file_submitted(record)?

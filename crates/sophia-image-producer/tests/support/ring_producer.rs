@@ -117,6 +117,62 @@ fn settled_only_after_status_and_exact_release() {
 }
 
 #[test]
+fn failed_control_reply_status_does_not_spend_settlement() {
+    let mut producer = ready();
+    let (offer, _) = producer.upload(upload(), &[9u8; 8], 3).unwrap();
+    // A failed ResourceRetire reply shares the ResourceStatus kind
+    // but is not store settlement: it neither settles nor frees the
+    // slot, and the genuine final status supersedes it.
+    producer
+        .resource_status(11, 1, ResourceStatusKind::Rejected, 4)
+        .unwrap();
+    assert_eq!(
+        producer.offer(offer).unwrap().state,
+        RingOfferState::Pending
+    );
+    assert_eq!(
+        producer.upload(upload(), &[9u8; 8], 5),
+        Err(ProducerError::Busy),
+        "the slot stays in custody until the exact release"
+    );
+    producer
+        .resource_status(11, 1, ResourceStatusKind::Accepted, 6)
+        .unwrap();
+    producer.ring_event(released(offer, 2), 7).unwrap();
+    assert_eq!(
+        producer.offer(offer).unwrap().state,
+        RingOfferState::Settled
+    );
+    assert!(!producer.closed());
+}
+
+#[test]
+fn final_status_before_release_governs_settlement() {
+    let mut producer = ready();
+    let (offer, _) = producer.upload(upload(), &[9u8; 8], 3).unwrap();
+    producer
+        .resource_status(11, 1, ResourceStatusKind::Accepted, 4)
+        .unwrap();
+    // The last status before the release is the final one.
+    producer
+        .resource_status(11, 1, ResourceStatusKind::Rejected, 5)
+        .unwrap();
+    producer.ring_event(released(offer, 2), 6).unwrap();
+    assert_eq!(
+        producer.offer(offer).unwrap().state,
+        RingOfferState::Refused
+    );
+    // A status after settlement is ignored, not a fault.
+    producer
+        .resource_status(11, 1, ResourceStatusKind::Accepted, 7)
+        .unwrap();
+    assert_eq!(
+        producer.offer(offer).unwrap().state,
+        RingOfferState::Refused
+    );
+}
+
+#[test]
 fn direct_fill_commits_without_a_copy() {
     let mut producer = ready();
     let (offer, bytes) = {

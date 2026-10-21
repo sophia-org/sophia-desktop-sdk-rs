@@ -436,7 +436,11 @@ impl FileWire {
         match outbound {
             Outbound::ImageBegin(body) => {
                 let header = self.next_header(ShellFileKind::ImageBegin);
-                let bytes = encode_shell_file_record_at_revision(header, &body, 9)?;
+                let bytes = encode_shell_file_record_at_revision(
+                    header,
+                    &body,
+                    sophia_shell_protocol::SOPHIA_SHELL_OWNED_RING_REVISION,
+                )?;
                 Ok(self.stage_records(vec![bytes]))
             }
             Outbound::CatalogActivation(transaction, activation) => {

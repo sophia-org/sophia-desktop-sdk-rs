@@ -93,6 +93,54 @@ fn ring_offer_runs_end_to_end() {
 }
 
 #[test]
+fn failed_retire_replies_do_not_spend_ring_settlement() {
+    let (mut connection, mut peer, dir, listener) = connect_image("retire-replies");
+    let accepted = drive_to_channel_ready(&mut connection, &mut peer, &listener);
+    let (source_fd, _) = drive_to_ring_ready(&mut connection, &mut peer, &accepted);
+    drop(source_fd);
+    let offer = connection
+        .image_upload_ring(upload(), &[3u8; 8], Instant::now())
+        .unwrap();
+    drive(&mut connection, &mut peer, |_, peer| {
+        peer.control_writes.len() == 2
+    });
+    // Failed ResourceRetire replies share the ResourceStatus kind,
+    // with the offer transaction and with an unrelated transaction.
+    // Neither settles, frees the slot, or faults the ring.
+    for transaction in [offer, 777] {
+        let bytes = peer.event(
+            ShellFileKind::ResourceStatus,
+            &status_body(transaction, 21, 1, 3),
+        );
+        peer.push(bytes);
+    }
+    drive(&mut connection, &mut peer, |connection, _| {
+        connection.image_ring_offer(offer).unwrap().status
+            == Some(sophia_image_producer::ResourceStatusKind::Rejected)
+    });
+    assert_eq!(
+        connection.image_ring_offer(offer).unwrap().state,
+        RingOfferState::Pending
+    );
+    assert_eq!(
+        connection.image_upload_ring(upload(), &[3u8; 8], Instant::now()),
+        Err(ImageAdapterError::Busy),
+        "the slot stays in custody until the exact release"
+    );
+    // The genuine final status supersedes the control replies, then
+    // the exact SlotReleased settles the offer for adoption.
+    let bytes = peer.event(ShellFileKind::ResourceStatus, &status_body(offer, 21, 1, 2));
+    peer.push(bytes);
+    let released = ring_released(peer.take_sequence(), offer, 2, 21, 1, 0);
+    peer.push(released);
+    drive(&mut connection, &mut peer, |connection, _| {
+        connection.image_ring_offer(offer).unwrap().state == RingOfferState::Settled
+    });
+    connection.image_forget(offer).unwrap();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn release_before_status_fails_the_ring() {
     let (mut connection, mut peer, dir, listener) = connect_image("order2");
     let accepted = drive_to_channel_ready(&mut connection, &mut peer, &listener);

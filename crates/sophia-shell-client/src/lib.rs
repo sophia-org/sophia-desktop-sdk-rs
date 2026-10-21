@@ -1083,8 +1083,8 @@ fn parse_files_api(bytes: &[u8]) -> Result<(u64, &str), ShellClientError> {
 }
 
 /// Validate the opt-in image shape against the negotiated offer:
-/// the offer must span revision 9, require the sealed bit and not
-/// require the DMA-BUF bit, and the config must be internally sound.
+/// the offer must span revision 10, require the owned-ring bit and
+/// not require the DMA-BUF bit, and the config must be internally sound.
 fn validate_image_options(
     options: &ShellClientOptions,
     image: &ShellImageConfig,
