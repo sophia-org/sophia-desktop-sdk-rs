@@ -1555,3 +1555,33 @@ native adoption and CPU compatibility. Final paired revisions belong in Sophia's
 verified snapshot manifests. These checks prove packet shape and custody only.
 Real GPU completion, device identity, immutable capture and performance remain
 t339 native qualification gates.
+# Worker-owned ring fills, October 30, 2026 — parity open
+
+Rust source `5d89565266c3a066c32c2eebac6fad40dc1d0a66`, based on
+`0706ea2c78cd16ba59ed209620354f30a2c78906`, adds `OwnedRingSlotFill` and
+shell-client acquire/commit/abort operations. The worker owns the mapping;
+the owner continues protocol dispatch. Failed commits retain the loan, explicit
+abort spends nothing, and abandoned loans fault the ring without reclaiming
+memory from a live worker. Successful commit still requires status plus exact
+SlotReleased before reuse/adoption. README documents the caller's deadline and
+completion-wake obligations. There are no new wire records or capabilities.
+
+Read-only C comparison: signed `3ccc7d04c28309ebed6fd53f399af7c7a5682d80`.
+`src/shell_session/ring.c` already separates `sophia_ss_image_ring_pixels`
+from `sophia_ss_image_ring_offer`. The former returns a raw payload pointer for
+a free slot; it does not reserve that slot. The latter rechecks readiness,
+identity/layout and control capacity before offering. `sophia_ss_image_close`
+unmaps the memory through `sophia_ip_ring_close`.
+
+That split may support an equivalent sequence with explicit caller ownership;
+it does not establish worker-safety by itself. Before claiming parity, document
+the C lifetime/synchronization obligations and independently test dispatch while
+filling, exclusion of competing writes, abort, backpressure retry, exact release,
+disconnect and close while a worker still holds pixels. Determine from those
+proofs whether a C custody helper is needed rather than mechanically porting
+Rust's storage model. C callers must not use a pointer after its mapping closes.
+
+No C counterpart changes or conformance runs are included in this Rust gate.
+**Parity and release qualification remain open:** do not update Sophia's verified
+SDK pins or promote production direct fill on this source-only result. Local Lom
+investigation is not a parity or native-acceptance claim.

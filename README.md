@@ -384,6 +384,11 @@ remain supported. Pixel format/conversion and GPU permission policy are unchange
 This API removes no Session custody copy and establishes no performance gain or
 production renderer integration by itself.
 
+[C parity remains an adoption gate](API-PARITY.md#worker-owned-ring-fills-october-30-2026--parity-open):
+the C raw-pointer lifetime and independently scripted worker sequence are not
+qualified by these Rust tests. No verified Sophia pin update follows from this
+local source change alone.
+
 ## Provenance
 
 `PROVENANCE.md` records the Sophia commit each crate was extracted from.
