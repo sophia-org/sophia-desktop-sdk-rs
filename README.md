@@ -384,10 +384,10 @@ remain supported. Pixel format/conversion and GPU permission policy are unchange
 This API removes no Session custody copy and establishes no performance gain or
 production renderer integration by itself.
 
-[C parity remains an adoption gate](API-PARITY.md#worker-owned-ring-fills-october-30-2026--parity-open):
-the C raw-pointer lifetime and independently scripted worker sequence are not
-qualified by these Rust tests. No verified Sophia pin update follows from this
-local source change alone.
+[C parity is behavioral under caller ownership](API-PARITY.md#worker-owned-ring-fills-october-30-2026--c-parity-recorded):
+C `9adb3c5` documents and tests the raw-pointer lifetime; Rust enforces it with
+the loan. Consumer, native and default adoption remain open, and no verified
+Sophia pin update follows from this record alone.
 
 ## Provenance
 

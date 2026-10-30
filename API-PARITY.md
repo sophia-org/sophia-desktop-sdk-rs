@@ -1555,7 +1555,8 @@ native adoption and CPU compatibility. Final paired revisions belong in Sophia's
 verified snapshot manifests. These checks prove packet shape and custody only.
 Real GPU completion, device identity, immutable capture and performance remain
 t339 native qualification gates.
-# Worker-owned ring fills, October 30, 2026 — parity open
+
+## Worker-owned ring fills, October 30, 2026 — C parity recorded
 
 Rust source `5d89565266c3a066c32c2eebac6fad40dc1d0a66`, based on
 `0706ea2c78cd16ba59ed209620354f30a2c78906`, adds `OwnedRingSlotFill` and
@@ -1573,15 +1574,44 @@ a free slot; it does not reserve that slot. The latter rechecks readiness,
 identity/layout and control capacity before offering. `sophia_ss_image_close`
 unmaps the memory through `sophia_ip_ring_close`.
 
-That split may support an equivalent sequence with explicit caller ownership;
-it does not establish worker-safety by itself. Before claiming parity, document
-the C lifetime/synchronization obligations and independently test dispatch while
-filling, exclusion of competing writes, abort, backpressure retry, exact release,
-disconnect and close while a worker still holds pixels. Determine from those
-proofs whether a C custody helper is needed rather than mechanically porting
-Rust's storage model. C callers must not use a pointer after its mapping closes.
+C counterpart: signed `9adb3c5b83a52baf2a8728cb10fcf821d1d6729b` (tree
+`cd509040abad184ee9afdf1a7d1ee01a77accfa8`, parent `3ccc7d0`). It adds no C
+public API, ABI or production behavior. `sophia_shell_image.h` and
+`OWNED-RING-WORKER.md` document caller-owned custody, and
+`src/tests/owned_ring_worker.h` adds real-pthread scenarios to
+`shell_image_test`. The exact tested tree passed `make check` (74 test
+binaries), including five worker scenarios:
+- owner dispatch with a worker parked mid-fill, then exact SlotReleased,
+  forget and a second real fill;
+- local abort and validation refusal without spending an offer ID or slot
+  generation;
+- control-write backpressure (`AGAIN`) and retry with payload and header
+  unchanged;
+- session loss while the worker still holds the payload;
+- image-channel closure while the worker still holds the payload.
 
-No C counterpart changes or conformance runs are included in this Rust gate.
-**Parity and release qualification remain open:** do not update Sophia's verified
-SDK pins or promote production direct fill on this source-only result. Local Lom
-investigation is not a parity or native-acceptance claim.
+It also passed the Nim binding check. Three source mutations were killed
+(unmap on ring failure, pixels for a non-FREE slot, offer after CLOSED), and the
+source was restored to the base blob. The SIGSEGV kill site of the unmap mutant
+is inferred, not traced.
+
+This is **behavioral parity under documented caller ownership**, not equal
+enforcement. Rust's `OwnedRingSlotFill` excludes competing uploads, binds
+producer instance and byte length, carries the mapping past producer
+destruction, and faults the ring when a live loan is dropped. In C:
+- `ring_pixels` reserves nothing, and the caller enforces one fill per image
+  with no other pixels/offer call meanwhile;
+- the worker calls no SDK function;
+- completion must hand off with a real synchronization edge;
+- the owner offers exactly the rendered geometry after revalidating identity;
+- no saved result is offered across close/init;
+- `sophia_ss_image_close`, reinit and destruction wait for the worker join,
+  because image close unmaps immediately while dispatch and disconnect do not.
+
+The C fixtures prove the valid sequence, not refusal of misuse.
+
+**Still open:** each C or Rust consumer (including Lom) must qualify its own
+completion, stale-result, cancellation, wake and destruction paths. Native
+presentation, default adoption and performance are unqualified. This record
+alone does not update Sophia's verified SDK pins or promote production direct
+fill.
