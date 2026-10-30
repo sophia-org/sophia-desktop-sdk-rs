@@ -16,6 +16,8 @@
 #[path = "image_dma.rs"]
 mod dma;
 
+mod owned_fill;
+
 use std::os::fd::OwnedFd;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};

@@ -553,3 +553,6 @@ fn deferred_setup_cannot_add_an_unnegotiated_image_grant() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[path = "support/image_owned_fill.rs"]
+mod image_owned_fill;
