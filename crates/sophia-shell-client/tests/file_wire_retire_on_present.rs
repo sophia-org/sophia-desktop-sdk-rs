@@ -1,6 +1,6 @@
 //! W2 prototype: a candidate naming one predecessor to retire on
-//! presentation, admitted only on a connection negotiated at revision 12 or
-//! later with capability bit 17 granted, and followed by `RetireOnPresent`
+//! presentation, admitted only on a connection negotiated at revision 12
+//! with capability bit 17 granted, and followed by `RetireOnPresent`
 //! through the session's outcomes and releases.
 
 #[allow(dead_code)] // Shared scripted peer; this file drives only part of it.
@@ -836,7 +836,9 @@ fn image_options_take_exactly_r12_for_w2() {
         (12, 12, BAR | OWNED | W2, true),
         (10, 12, BAR | OWNED | W2, false),
         (12, 13, BAR | OWNED | W2, false),
-        (12, 12, BAR | OWNED, false),
+        (12, 12, BAR | OWNED, true),
+        (11, 11, BAR | OWNED, true),
+        (13, 13, BAR | OWNED, false),
     ] {
         let options = ShellClientOptions {
             minimum_revision: minimum,

@@ -1111,7 +1111,8 @@ fn validate_image_options(
             && options.maximum_revision
                 == sophia_shell_protocol::shell::content::SOPHIA_SHELL_RETIRE_ON_PRESENT_REVISION
     } else {
-        options.minimum_revision <= sophia_shell_protocol::SOPHIA_SHELL_OWNED_RING_REVISION
+        options.minimum_revision
+            <= sophia_shell_protocol::shell::content::SOPHIA_SHELL_RETIRE_ON_PRESENT_REVISION
             && options.maximum_revision >= sophia_shell_protocol::SOPHIA_SHELL_OWNED_RING_REVISION
     };
     if !spans_image
