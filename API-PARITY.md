@@ -1555,3 +1555,17 @@ native adoption and CPU compatibility. Final paired revisions belong in Sophia's
 verified snapshot manifests. These checks prove packet shape and custody only.
 Real GPU completion, device identity, immutable capture and performance remain
 t339 native qualification gates.
+# W2 integration checkpoint (unreleased)
+
+Shell r12 / bit 17 follows Sophia's allocation ledger. The candidate codec,
+exact retirement capability gate and r10/r11/r12 owned-ring mapping now have
+matching C entry points and a shared nine-record corpus in
+`spec/golden/sophia-shell-retire-v1.tsv`. Image mapping does not imply draw or
+retirement permission; unallocated later revisions establish no mapping.
+
+This is partial integration, not production qualification. The Rust prototype
+client and its lifecycle helper have been carried forward; the equivalent C
+session submission/tracking API, complete cumulative negotiation, host wiring
+and protected/native qualification remain unfinished. Neither this checkpoint
+nor successful codec tests closes SDK parity. Existing clients keep explicit
+retirement. Do not enable a live W2 profile from this unreleased work.

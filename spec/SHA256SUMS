@@ -25,3 +25,6 @@ ab126b30a9c1d7d98929489c5d18d8c18d6fabaf15141cc0cd84ed4557d14fdd  sophia-shell-f
 58c3806f72bb80c6b29648ebe34ad2e24706759fdbab689e21742b0876c80c58  sophia-wm-api.md
 702288697c0a6deba54245aba1cbe9530ef55e3f0dc8cf2622ca52e34b9fcb85  sophia-wm-files-v1.kdl
 0476cbf5965061dfc57aef8d26c1ee338182ea6535f4f8b53d2520b79ebc2c9a  sophia-wm-files.md
+8725f17e66661c5cdd9de49fd122c7774281df839385d33feea716beee1a6d4d  spec/golden/sophia-shell-retire-v1.tsv
+edd7740b2b4108d83ec72761dcd4e873361d9a306bc1f84bb65f7813a7452ce3  spec/sophia-shell-files-v1.kdl
+74670d4a7920c17f4ac4b96619c352bfca8022ae1ae544afab97f59e120a68b4  spec/sophia-shell-files.md
