@@ -889,6 +889,24 @@ rules in `spec/`, checked by `spec/SHA256SUMS`. C comparison source:
 | Terminal connection | Poll interests become zero; inspect session state/error | `io_interest()` returns a terminal error | Stop monitoring; drain already received events and inspect custody. No automatic reconnect or replay. |
 | Convenience wait | Caller composes poll, timer and dispatch | `wait_for_io` | Rust retains its existing convenience method. |
 
+Rust convenience-wait correction, 2026-11-03 (base
+`d70e77a08d610a3c6bf8ef3dd7d1408fc7eeed30`): if the initial drive processes a
+journal event, `wait_for_io` returns before sleeping so the caller can inspect
+updated adapter state. SlotReleased is routed to the ring adapter without a
+content-inbox record; previously the drive could settle an offer and then sleep
+until the caller's timeout. The regression delivers SlotReleased between the
+caller's state check and the helper's drive, with automatic ACK both on and off,
+and verifies that a later quiet wait still blocks. No wire, custody, timeout or
+ACK policy changes. Non-journal-only state transitions are outside this fix.
+
+C comparison: `a79808950ac2b71881a674a0972ed347b9cc16bd` exposes separate
+`sophia_ss_dispatch` and polling operations; it has no corresponding blocking
+convenience helper or hidden second drive. Its existing `owned_ring_session.h`
+scenario in `shell_image_test` checks that dispatch consumes SlotReleased,
+leaves no application event, and exposes the released/adoptable slot. No C
+implementation change is needed. This SDK regression does not establish the
+cause of a particular native stall, native qualification or a CPU saving.
+
 Rust checks: `external_loop_interest_tracks_queued_bytes_and_buffered_replies`,
 `external_loop_drains_local_events_and_does_not_watch_idle_writability`,
 `external_loop_stops_monitoring_a_closed_connection`, malformed-reply poison
