@@ -952,3 +952,10 @@ Shell prose synchronized from signed Sophia `da653bd3d68c25c3357db0008d9d401143c
 import: the SFT pointer now names its allocated, default-off contract, and the
 existing role-limit paragraph reflects the host grants. No wire layout, SDK
 limit value, owning-client behavior or negotiation default changes in this sync.
+
+## SFT owning copied-source join, 2026-11-04
+
+The owning image path now joins the pinned SFT FrameCommit with the existing
+D4 two-slot source protocol. No schema, authority or negotiation default changes.
+See API-PARITY.md for paired ownership, refusal and unknown-custody rules. Host
+pin import, concrete producers, model traces and native qualification remain open.

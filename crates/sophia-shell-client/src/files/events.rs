@@ -632,6 +632,9 @@ impl FileWire {
                     .push_back(super::image_adapter::Routed::Event(event));
             }
             Event::Inbound(item) => {
+                if self.image_enabled {
+                    super::image_adapter::route_frame_source(&item, &mut self.image_routed);
+                }
                 if deliver {
                     inbox.push_back(item);
                 }

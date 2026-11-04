@@ -1690,3 +1690,48 @@ refusals, both close/terminal orders, automatic-close/explicit-close races,
 reopening and authority loss. No host pin update, default enablement, native
 launch or performance claim. This extends the typed transport checkpoint; it
 does not declare the complete SFT owning producer ready.
+
+## SFT copied-source admission join, 2026-11-04
+
+Explicit r13 clients can now attach the existing owned-ring image adapter with
+exactly two slots. Negotiation remains opt-in: content, owned-ring and SFT must
+be requested and granted; sealed, DMA, draw and retire-on-present capabilities
+remain excluded. Discovery, D4 registration and the descriptor handoff retain
+the r10 image-channel mapping. Separate legacy Offer submission is refused on
+this connection; the whole FrameCommit contains its single copied-source offer.
+
+Rust `FrameStream::submit_ring` takes a Commit without an image and fills a free
+mapped slot directly through a closure. It validates the binding and exact
+embedded offer, reserves the existing queue, then publishes the generation word,
+queues the frame and reserves credit without intervening I/O or fallible work.
+A refused queue or unwinding fill spends no offer, slot generation, candidate or
+credit; the supplied record is restored before the fill runs. The lower-level
+`RingSlotFill::offer` preview and allocation-free `commit_offer` support this
+join; a preview must never be sent before publication succeeds.
+
+C `sophia_ss_frame_submit_ring` joins the same ownership using a caller-filled
+free slot from `sophia_ss_image_ring_pixels`. It restores the supplied record,
+queues validated bytes without pumping, publishes the slot and reserves credit,
+then runs the existing nonblocking pump. All validation/capacity failures precede
+publication. The public image state grew; rebuild C clients with matching headers. Rust
+source failures use the added `ShellClientError::Image(ImageAdapterError)` variant;
+exhaustive error matches must handle it.
+Both APIs return the ordinary custody ticket and an offer id. Caller storage
+must not be modified while owned, including after local timeout.
+
+Submitted proves transport custody only. Prepared or a terminal proves frame
+admission but never releases pixels. Only matching ResourceStatus followed by
+exact SlotReleased settles an admitted source. A matching FrameRefused before
+admission, or a definitive transport refusal, can release a source that has no
+admission/status evidence; its offer and generation remain spent. A contradictory
+refusal after Prepared/status, wrong correlation, unavailable custody or journal
+loss fails closed and preserves Unknown source ownership. A semantic refusal
+may restore frame credit; a transport failure does not. Continue routing every
+frame event to the stream owner and retain source/resource owners separately.
+
+Independent scripted 9P peers with real SEQPACKET/mapped-ring handoff cover
+queue rollback, exact embedded bytes/no legacy Offer, credit reservation, both
+busy slots, exact release, refusal/retry identities, Prepared-before-refusal,
+wrong correlation and disconnect. Rust also checks fill unwind. These are
+SDK conformance checks, not host import, real Lom/reference producer adoption,
+model trace validation, native qualification or a performance result.

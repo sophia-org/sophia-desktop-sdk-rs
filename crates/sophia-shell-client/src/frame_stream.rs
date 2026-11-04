@@ -103,6 +103,13 @@ impl FrameStream {
         connection: &mut ShellConnection,
         record: &ShellFrameRecord,
     ) -> Result<Admission, ShellClientError> {
+        self.check_submit(record)?;
+        let admission = connection.enqueue_frame(record)?;
+        self.submitted(record);
+        Ok(admission)
+    }
+
+    pub(crate) fn check_submit(&self, record: &ShellFrameRecord) -> Result<(), ShellClientError> {
         if self.state != FrameStreamState::Open {
             return Err(ShellClientError::InvalidArgument(
                 "frame stream is not open",
@@ -130,7 +137,14 @@ impl FrameStream {
         if !self.has_credit() || self.pending.is_some() {
             return Err(ShellClientError::QueueSaturated);
         }
-        let admission = connection.enqueue_frame(record)?;
+        Ok(())
+    }
+
+    pub(crate) fn submitted(&mut self, record: &ShellFrameRecord) {
+        let ShellFrameRecord::Commit(value) = record else {
+            unreachable!("validated frame commit")
+        };
+        let candidate = &value.candidate;
         self.last_candidate = candidate.candidate_generation;
         self.credit = false;
         self.pending = Some(Pending {
@@ -138,7 +152,6 @@ impl FrameStream {
             generation: candidate.candidate_generation,
             prepared: false,
         });
-        Ok(admission)
     }
 
     /// Stop admissions immediately after Close is queued. A refused Close may be
