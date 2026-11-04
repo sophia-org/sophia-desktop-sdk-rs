@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "frame_owned_images.rs"]
+mod owned;
+
 struct Fixture {
     c: ShellConnection,
     p: Peer,
