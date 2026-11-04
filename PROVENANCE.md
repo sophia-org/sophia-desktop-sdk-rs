@@ -909,3 +909,15 @@ producer-completed LINEAR XRGB8888 DMA source custody and shell adapter APIs.
 The optional r10 contract comes from Sophia `b47a6a094b3cc5a4da0c1a720d32040dbe05dd8d`.
 See API-PARITY.md for descriptor ownership, paired C work and unclosed native
 evidence gates. Current owned-ring CPU uploads and the lock ISB plane remain.
+
+## Sophia Frame Transactions wire contract, 2026-11-04
+
+The SFT prose, schema and golden vectors are copied verbatim from signed Sophia
+commit `ced86c71ff001ab4e4130fc0dff40c71261da068`. `spec/SHA256SUMS` pins their bytes.
+This is explicit r13 / bit 18 vocabulary; existing client defaults remain
+unchanged. Codec work does not establish host admission, producer integration,
+C/Rust parity, native qualification or a performance improvement.
+
+The prose includes signed clarification `54c6c8c9107199ca89a8528247c5b552bd203d87`: surface indices
+are zero in the one-surface profile and embedded images fit the 4 MiB protocol
+maximum. Smaller registered capacity and allocation limits remain owner checks.
