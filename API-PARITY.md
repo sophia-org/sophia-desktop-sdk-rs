@@ -1645,3 +1645,48 @@ Stream-credit/key tracking and the embedded-image adapter ownership join are
 still pending; the image adapter remains restricted to its existing revisions.
 There is no production export enablement, SDK pin update, native run, trace
 validation or performance claim in this checkpoint.
+
+## SFT owning stream credit, 2026-11-04
+
+Rust `FrameStream` and C `sophia_ss_frame_stream` now own one frame credit and
+completion correlation for a stream binding. Open/Commit/Close use the existing
+connection and queue; their owners change only after queue admission succeeds.
+No new socket, thread, timer, allocation or independently renewed credit is added
+by this state machine. The caller supplies grant-wide monotonically increasing
+stream/candidate identities; separate owners do not allocate identities globally.
+
+Open starts without credit. Only the matching Opened grants it. Commit reserves
+it after queue acceptance; neither Submitted nor Prepared returns it. A matching
+terminal returns at most one provisional credit when its owner-clock deadline is
+nonzero and the stream is still Open. The deadline is never compared with client
+time. A typed Commit refusal releases the local reservation, since the host did
+not spend credit, but the local candidate generation stays spent. A refused Open
+does not spend its proposed stream id. Shape/binding/queue refusals leave the
+owner unchanged; malformed, duplicate or mismatched observations enter Unknown
+and preserve outstanding work without admitting more.
+
+Close stops admissions immediately after its queue acceptance. Closed may arrive
+before or after an accepted frame's terminal; both must drain before reopening.
+An automatic Closed uses the opening transaction and can race a queued explicit
+Close. The outstanding close reply must drain too, normally via FrameRefused.
+A refused Close is retryable but never reopens admissions. Close uses a transaction
+distinct from Open, so automatic expiry stays distinguishable. Reopening retains
+local identity high-waters and stays within the same grant. Disconnect/revocation
+enters Unknown permanently; never recreate or reset an owner to evade custody.
+
+Route SFT events in journal order exactly once; this API does not consume or ACK
+them, update native presentation targets, render, or retire resources. C fields
+are SDK-owned and initialized once to zero; do not copy a live owner. Rust is
+owned and non-Clone. These are frame-control obligations only: source-slot and
+resource owners remain independent, and `frame_work_drained`/`frame_drained` do
+not establish source release or resource reclamation. Embedded-image reservation,
+stream/source atomic queue admission, real producer integration and model trace
+validation remain the next gates. The transport's low-level APIs remain available
+for conformance; they do not inherit this owner automatically.
+
+Evidence: `~/.local/state/sophia-frame-client-stream-01`. Paired scripted 9P tests
+cover single credit, queue rollback, Prepared, duplicate and wrong-tuple terminals,
+refusals, both close/terminal orders, automatic-close/explicit-close races,
+reopening and authority loss. No host pin update, default enablement, native
+launch or performance claim. This extends the typed transport checkpoint; it
+does not declare the complete SFT owning producer ready.

@@ -1,5 +1,17 @@
 # Provenance
 
+## SFT owning stream credit, 2026-11-04
+
+Paired bases: Rust `a5481d1df3bee9851e181ec84dfb04ab340b4d32`,
+C `14e751d3b541056d080b8363a1dec66ebb2a64c8`. Fixed-size one-credit stream
+owners now join local queue acceptance with exact lifecycle correlation.
+The allocated wire grammar and low-level transport remain unchanged.
+See [stream parity](API-PARITY.md#sft-owning-stream-credit-2026-11-04) for
+close/expiry races, custody limits and the pending source/producer joins.
+Evidence and exact publication identities are recorded in
+`~/.local/state/sophia-frame-client-stream-01` and its publication receipt.
+No host SDK pin or production enablement changes in this checkpoint.
+
 ## SFT typed client transport, 2026-11-04
 
 Paired source bases: Rust `bf8dc0142f5ee305779c78916edc3a960db19cc0`,

@@ -405,3 +405,6 @@ fn all_complete_frame_variants_reuse_the_one_submission_lane() {
         assert!(connection.take_frame().unwrap().is_none());
     }
 }
+
+#[path = "frame_stream.rs"]
+mod stream;
