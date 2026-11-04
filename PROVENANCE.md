@@ -921,3 +921,8 @@ C/Rust parity, native qualification or a performance improvement.
 The prose includes signed clarification `54c6c8c9107199ca89a8528247c5b552bd203d87`: surface indices
 are zero in the one-surface profile and embedded images fit the 4 MiB protocol
 maximum. Smaller registered capacity and allocation limits remain owner checks.
+
+Shell prose synchronized from signed Sophia `da653bd3d68c25c3357db0008d9d401143ce8732` before
+import: the SFT pointer now names its allocated, default-off contract, and the
+existing role-limit paragraph reflects the host grants. No wire layout, SDK
+limit value, owning-client behavior or negotiation default changes in this sync.
