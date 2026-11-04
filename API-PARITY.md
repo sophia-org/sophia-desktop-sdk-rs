@@ -1599,3 +1599,49 @@ This is passive wire-codec parity only. It is not owning-session/producer parity
 production-export admission, fragmented-write/backpressure qualification, model
 trace validation, or native performance/security acceptance. Those gates remain
 open before host exposure or default enablement. No SDK vendor pin changes here.
+
+## SFT typed client transport, 2026-11-04
+
+Both owning connections can explicitly negotiate r13 with content authority,
+owned-ring bit 15 and SFT bit 18. Neither default negotiation changes. Both
+refuse missing authority or Limits, unsolicited SFT, and the incompatible
+sealed-image, DMA-BUF, draw-list and W2 bits. Bar, dock, launcher and descriptor
+startup use their existing role policy as well as this SFT gate.
+
+Rust exposes `ShellConnection::reserve_frame`, `enqueue_frame` and `take_frame`;
+manual delivery exposes `JournalRecord::Frame`. C uses the existing
+`sophia_ss_reserve`/`commit`/`submit` and `sophia_ss_event`/`consume` with
+`sophia_sf_record.value.frame`. The explicit `_revision` C codecs also accept
+these values at r13; the default codecs still refuse them. Passive C types now
+live in `sophia_shell_frame_types.h`, shared by the codecs and file client.
+Rebuild C consumers and bindings against matching headers and libraries: the
+public record union has grown. Rust exhaustive matches on journal records must
+handle the new variant.
+
+Open, Close and Commit each occupy one whole transaction in the existing
+bounded queue. A Commit's embedded image is not separately submitted as a
+legacy image offer. Requests must fit both the absolute 8192-byte ceiling and
+the granted candidate-byte limit. Caller input remains owned by the caller on
+refusal; a cancelled reservation sends nothing. Queue admission and Submitted
+custody do not grant frame credit. EAGAIN retries the same submit identity and
+staged bytes without rewriting the transaction. Disconnect keeps the existing
+unknown-custody rule; never replay an uncertain request into another connection.
+
+Frame events use the shared journal sequence and ACK boundary. Manual delivery
+keeps an event until consumed; automatic delivery queues a typed event once.
+Malformed or wrong-epoch events fail closed before any later buffered event.
+The low-level typed API does not correlate a terminal with an owning stream:
+the caller must match the full stream key and candidate generation before
+using a returned credit, whose owner-clock deadline is opaque to the client.
+
+Evidence: `~/.local/state/sophia-frame-client-transport-01`. Independent scripted
+9P tests cover exact negotiation, all four Commit layouts, whole custody,
+reservation cancellation, retry without restaging, granted-byte refusals,
+manual ACK retention, queue-full refusal and malformed-event quarantine.
+Existing queue/custody suites also run on both implementations.
+
+This is a typed transport checkpoint, not a complete owning SFT producer.
+Stream-credit/key tracking and the embedded-image adapter ownership join are
+still pending; the image adapter remains restricted to its existing revisions.
+There is no production export enablement, SDK pin update, native run, trace
+validation or performance claim in this checkpoint.

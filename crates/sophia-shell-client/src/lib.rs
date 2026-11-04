@@ -8,6 +8,7 @@ mod batch;
 mod candidate;
 pub use batch::{ContentBatchItem, ShellBatchItem};
 mod custody;
+mod frames;
 pub use custody::{Admission, Custody, CustodyLookupError, Ticket};
 mod catalog;
 pub use catalog::{CatalogInbox, CatalogObservation};

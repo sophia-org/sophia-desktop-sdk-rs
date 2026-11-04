@@ -1,5 +1,19 @@
 # Provenance
 
+## SFT typed client transport, 2026-11-04
+
+Paired source bases: Rust `bf8dc0142f5ee305779c78916edc3a960db19cc0`,
+C `1d4ab9db683c055914846d36dbaeb2f73fd21bd9`. The pinned SFT wire contract
+and goldens are unchanged. Typed whole requests and events now use the
+existing owning connection's bounded transaction and journal paths under
+explicit r13/bit-18 negotiation. Defaults remain unchanged.
+
+See [API parity](API-PARITY.md#sft-typed-client-transport-2026-11-04) for
+ownership, compatibility and the still-open stream/source/producer gates.
+`~/.local/state/sophia-frame-client-transport-01` records checks and source
+trees; its separate publication receipt records exact signed commits before
+any host import. No vendored source or product pins are changed here.
+
 ## Mapped ISB builder, 2026-10-18
 
 Adds in-place ISB construction to both SDKs: the Rust leaf crate `sophia-isb`
