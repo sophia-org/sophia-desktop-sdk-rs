@@ -1,5 +1,6 @@
-//! The bounded, nonblocking `poll_io` driving loop: one round writes queued
-//! requests and reads replies via `Pipeline::poll`, dispatches whatever
+//! The bounded, nonblocking `poll_io` driving loop: the first round writes queued
+//! requests and reads replies via `Pipeline::poll`; later rounds poll only for
+//! queued output. Each round dispatches whatever
 //! completed, then lets every other state machine (outbound submission/slot
 //! writes, object fetch, event processing, the `events` read and its acks)
 //! take its next step, repeating while something keeps changing.
@@ -182,9 +183,14 @@ impl FileWire {
         self.service_pending = true;
         for round in 0..MAX_ROUNDS {
             let mut eof = false;
-            let result = match &mut budget {
-                Some(budget) => self.pipeline.poll_with_budget(budget),
-                None => self.pipeline.poll(),
+            // Buffered events need no new socket probe; late input stays level-ready.
+            let result = if round == 0 || self.pipeline.io_interest()?.writable {
+                match &mut budget {
+                    Some(budget) => self.pipeline.poll_with_budget(budget),
+                    None => self.pipeline.poll(),
+                }
+            } else {
+                Ok(())
             };
             match result {
                 Ok(()) => {}

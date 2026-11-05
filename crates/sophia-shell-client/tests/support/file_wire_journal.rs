@@ -1,6 +1,53 @@
 use super::*;
 
 #[test]
+fn buffered_events_do_not_repoll_an_empty_socket_per_record() {
+    use std::os::fd::{AsFd, AsRawFd};
+
+    let (mut connection, mut peer) = connect(bar(0));
+    let mut burst = Vec::new();
+    for _ in 0..8 {
+        burst.extend(permit(&mut peer));
+    }
+    peer.push(burst);
+    peer.pump();
+    // Bound the measured drive for the external syscall-count check.
+    eprintln!(
+        "buffered-event-poll-start fd={}",
+        connection.as_fd().as_raw_fd()
+    );
+    connection.poll_io().unwrap();
+    eprintln!("buffered-event-poll-end");
+    assert_eq!(connection.journal_progress().handled, 10);
+    peer.pump();
+    assert_eq!(
+        peer.acks.iter().map(|ack| ack.sequence).collect::<Vec<_>>(),
+        [10]
+    );
+    for _ in 0..8 {
+        assert!(connection.take_content().unwrap().is_some());
+    }
+    assert!(connection.take_content().unwrap().is_none());
+
+    let event = permit(&mut peer);
+    peer.push(event);
+    peer.pump();
+    let mut fds = [rustix::event::PollFd::new(
+        &connection,
+        rustix::event::PollFlags::IN,
+    )];
+    assert_eq!(
+        rustix::event::poll(&mut fds, Some(&rustix::event::Timespec::default())).unwrap(),
+        1
+    );
+    assert!(fds[0].revents().contains(rustix::event::PollFlags::IN));
+    connection.wait_for_io(Duration::ZERO).unwrap();
+    connection.poll_io().unwrap();
+    assert_eq!(connection.journal_progress().handled, 11);
+    assert!(connection.take_content().unwrap().is_some());
+}
+
+#[test]
 fn automatic_ack_coalesces_a_consumed_burst_before_yielding() {
     let (mut connection, mut peer) = connect(bar(0));
     let mut burst = Vec::new();
@@ -16,6 +63,39 @@ fn automatic_ack_coalesces_a_consumed_burst_before_yielding() {
         peer.acks.iter().map(|ack| ack.sequence).collect::<Vec<_>>(),
         [5]
     );
+}
+
+#[test]
+fn retained_event_burst_keeps_consumption_and_ack_boundaries() {
+    use std::os::fd::{AsFd, AsRawFd};
+
+    let (mut connection, mut peer) = connect(bar(0));
+    connection.set_automatic_event_delivery(false).unwrap();
+    let mut burst = Vec::new();
+    for _ in 0..8 {
+        burst.extend(permit(&mut peer));
+    }
+    peer.push(burst);
+    peer.pump();
+    eprintln!(
+        "retained-event-poll-start fd={}",
+        connection.as_fd().as_raw_fd()
+    );
+    for sequence in 3..=10 {
+        connection.poll_io().unwrap();
+        assert_eq!(connection.journal_event().unwrap().sequence, sequence);
+        assert_eq!(connection.journal_progress().ack_limit, sequence - 1);
+        assert!(connection.consume_journal_event().unwrap());
+    }
+    connection.poll_io().unwrap();
+    eprintln!("retained-event-poll-end");
+    assert!(connection.journal_event().is_none());
+    assert_eq!(connection.journal_progress().ack_limit, 10);
+    drive(&mut connection, &mut peer, |c, _| {
+        c.journal_progress().acknowledged == 10
+    })
+    .unwrap();
+    assert_eq!(peer.acks.last().unwrap().sequence, 10);
 }
 
 #[test]

@@ -1,5 +1,27 @@
 # C and Rust SDK API parity
 
+## Buffered file-wire drive, 2026-11-05
+
+Rust base `ae473881` polls the file socket once on entry and again only when
+an internal round has queued output. Buffered events still advance in FIFO order;
+reply-triggered requests and the cumulative ACK are written before the drive
+yields. Input or EOF arriving during buffered-only rounds remains level-ready
+for the next outer drive. Budgets, retained-head consumption, custody and error
+classification are unchanged. No wire or public API change, new SDK pin, or
+native CPU saving is claimed by this source checkpoint.
+
+C base `0df720b0` has a different loop: `shell_files/client.c` services the wire
+once before draining replies, and `shell_session/session.c` gives its later
+internal passes zero byte budget. It does not require a literal port of this
+Rust-specific per-buffered-event probe removal. C performance is not measured
+here, and this work does not close unrelated parity gates.
+
+The scripted tests cover automatic and retained bursts, cumulative/manual ACK,
+reply-triggered requests, late input readiness, EOF and shared budgets. An
+external `strace` check uses the test's start/end markers with `--nocapture`;
+`/proc/*/io` read counters do not count this socket's `recvfrom` calls. Evidence:
+`~/.local/state/sophia-sdk-drive-buffered-events-01`.
+
 ## Mapped ISB builder, 2026-10-18
 
 Both SDKs build an ISB in place, so producers fill pixels without a staging
