@@ -1886,3 +1886,20 @@ its existing caller-synchronized mapping lifetime. Tests independently upload an
 settle three resources before Open, reject a mismatched key and post-Open/Unknown
 use, and prove that initial uploads do not mint credit or send stream controls.
 This is SDK preparation for the real Lom producer, not native qualification.
+
+## Journal progress before a readiness sleep, SFT branch (2026-11-04)
+
+The r13 branch carries forward the wait correction reviewed in Rust c7bde621.
+`ShellConnection::wait_for_io` snapshots journal progress before its internal
+I/O pass and returns if that pass handled a journal event, even when an image
+transition did not add a content-inbox item. Callers can inspect SlotReleased
+settlement before another sleep. The real socket regression fails on b483e1e
+with a two-second wait and passes with automatic ACK both enabled and disabled;
+an already-settled idle follow-up still blocks. Wire, custody, credit, deadlines
+and ACK policy are unchanged. Adapter-socket-only transitions remain outside
+this correction; no native stall cause or performance result is inferred.
+
+C comparison 0df720b0b1af7dd793f55b2bceac867bc1261b6b has caller-composed
+poll/dispatch and no hidden convenience drive before sleep (see the event-loop
+matrix). No C implementation change is needed. No host SDK snapshot is changed
+by this checkpoint; the native reference peer explicitly pins the corrected SDK.
