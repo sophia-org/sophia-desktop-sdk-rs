@@ -41,6 +41,16 @@ impl ImageAdapter {
         if wire.require_frame().is_ok() {
             return Err(ImageAdapterError::NotEnabled);
         }
+        self.commit_returned_fill(wire, fill, upload, now)
+    }
+
+    pub(super) fn commit_returned_fill(
+        &mut self,
+        wire: &FileWire,
+        fill: &mut OwnedRingSlotFill,
+        upload: sophia_image_producer::RingUpload,
+        now: Instant,
+    ) -> Result<u64, ImageAdapterError> {
         let now_ms = self.owned_fill_ready(wire, now)?;
         let (offer, bytes) = self
             .ring

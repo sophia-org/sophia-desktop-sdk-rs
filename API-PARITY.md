@@ -1828,3 +1828,37 @@ joined with per-output stream drain during real producer integration; this API
 alone does not enable a legacy offer on an r13 connection. Real Lom/reference
 adoption, host negotiation, trace validation and native qualification remain
 open. No performance or production-enable claim.
+
+## SFT drained-image fallback, 2026-11-04
+
+Rust `FrameStream::commit_legacy_ring_fill` and C
+`sophia_ss_frame_legacy_ring_offer` explicitly resume ordinary owned-ring uploads
+on the same r13 connection after that output stream closes and drains. Both
+require the exact grant, output, allocation and facts binding. No pending or
+Unknown SFT source may remain for the output: frame completion and Closed alone
+do not release pixels. Source status plus exact SlotReleased remains necessary.
+The ordinary legacy entry points still refuse r13; no protocol or ABI layout
+changes are introduced.
+
+Successful admission emits the existing legacy Offer and preserves registered
+ring storage and accepted resources. Follow normal image settlement and then
+FrameDemand/FramePermit/Candidate. This operation grants no frame credit and
+never reconnects. Keep that output binding on legacy submission until a new
+binding is selected; the actual producer owns this policy. It must freshly
+validate render identity, retain the displayed lease, and finish source drain.
+The host independently checks mode at admission; a client check is not authority.
+
+Rust refusal retains the completed `OwnedRingSlotFill`; success makes it inert.
+C returns the existing `SOPHIA_IPR_*` image result codes and preserves its
+caller-owned slot rules: synchronize worker completion before offering and join
+before closing/unmapping. Neither implementation adds a staging pixel copy.
+Paired tests cover Open, Closed with a frame still outstanding, terminal before
+source release, Accepted without release, exact release, the normal legacy
+Offer bytes and settlement, wrong binding, empty/Unknown owner, and connection
+closure without consuming the filled storage.
+
+Paired source bases are Rust `397a94bab26dc7fe459e98d1d574ee3622398519` and
+C `8d1fb091a3407e5bb65a7f484ed29b9154cae8b4`. Evidence and exact publication
+revisions are recorded in `~/.local/state/sophia-frame-image-fallback-01` and
+its adjacent publication receipt. Real producer integration, host import,
+production negotiation, runtime traces and native qualification remain open.

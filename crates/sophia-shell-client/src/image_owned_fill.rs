@@ -23,7 +23,8 @@ impl ShellConnection {
     /// loan, so Again can be retried without rerendering. On success the loan is
     /// inert and the returned offer follows normal status/SlotReleased custody.
     /// This legacy offer is refused on r13; use [`crate::FrameStream::submit_ring_fill`]
-    /// to join the returned loan to complete frame intent and credit instead.
+    /// to join the returned loan to complete frame intent and credit instead, or
+    /// [`crate::FrameStream::commit_legacy_ring_fill`] after draining for fallback.
     pub fn image_commit_ring_fill(
         &mut self,
         fill: &mut OwnedRingSlotFill,

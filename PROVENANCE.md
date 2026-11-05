@@ -1,5 +1,12 @@
 # Provenance
 
+## SFT drained-image fallback, 2026-11-04
+
+Adds the explicit same-binding legacy image bridge after stream and source
+drain. The ordinary r13 entry-point guards, wire grammar and resource custody
+remain unchanged. See API-PARITY.md for paired bases, ownership and evidence.
+No host pins or producer/default negotiation are changed by this SDK checkpoint.
+
 ## SFT owning stream credit, 2026-11-04
 
 Paired bases: Rust `a5481d1df3bee9851e181ec84dfb04ab340b4d32`,
