@@ -213,6 +213,9 @@ impl FileWire {
                 return Ok(());
             }
             let mut progressed = drained || paired;
+            // Apply consumed heads before queuing their ACK, then retire completed
+            // outputs before reusing the outbound lane.
+            progressed |= self.process_buffered_event(inbox)?;
             for _ in 0..std::mem::take(&mut self.retire) {
                 output.retire_front();
             }
@@ -228,7 +231,6 @@ impl FileWire {
             progressed |= self.drive_submit_retry()?;
             progressed |= self.drive_object_fetch()?;
             progressed |= self.drive_image_fetch()?;
-            progressed |= self.process_buffered_event(inbox)?;
             progressed |= self.maybe_read_events(inbox)?;
             if !progressed
                 || budget.as_ref().is_some_and(IoBudget::exhausted)

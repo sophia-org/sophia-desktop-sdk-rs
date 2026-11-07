@@ -1,5 +1,30 @@
 # C and Rust SDK API parity
 
+## Already-ready request batching, 2026-11-06
+
+On Rust base `564be8c7a6c20b3100fd6345b2df7aa0b542737a`, each drive round
+applies its one buffered/consumed journal event before retiring completed
+outputs and queuing outgoing requests. This permits a now-eligible cumulative
+ACK and an already queued FrameCommit to share the pipeline's existing send.
+There is no batching delay, new record or public API. The request bytes, ACK
+holds, manual-ACK policy, retry/custody rules and I/O budgets remain unchanged.
+The change may send the newer ACK before the frame where the old scheduling
+sent that ACK afterwards; it still never acknowledges an unconsumed head.
+
+C `8b7beb3b9ae802b1a26ac51e42ae74b98601a7fc` updates its consumed watermark
+synchronously in `sophia_sf_client_event_consume`, so it has no deferred Rust
+head application to move. Its queued operations retain separate output slots;
+this is semantic/ordering compatibility, not a claim of equal syscall counts.
+No C implementation or ABI change is needed for this internal Rust scheduling
+change. Independent conformance remains the authority on custody, not sends.
+
+The failing-before scripted test changes two sends into one for an eligible
+ACK/frame pair. Controls cover retained heads, disabled automatic ACK and a
+zero-byte dispatch followed by progress without peer input. The actual producer
+fixture also exercises co-sent ACK/FrameCommit packets, with unchanged frame
+payloads. Evidence: `~/.local/state/sophia-sft-ready-batch-01`. No native CPU or
+owner-pass improvement is established by these device-free observations.
+
 ## Optional complete-write SFT transport, 2026-11-06
 
 Paired bases: Rust `fd9330b64fb415dab8daacb769bcca835b546661`,

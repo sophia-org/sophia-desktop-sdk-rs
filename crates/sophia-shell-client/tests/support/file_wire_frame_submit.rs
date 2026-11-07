@@ -1,6 +1,101 @@
 use super::*;
 use file_wire_peer::FrameSubmitOptions;
 
+fn retained_head() -> (ShellConnection, Peer, u64) {
+    let (connection, mut peer) = connected(FrameSubmitOptions::default());
+    let mut connection = connection.unwrap();
+    connection.set_automatic_event_delivery(false).unwrap();
+    let ticket = connection.enqueue_frame(&commit_record()).unwrap().first;
+    let first = issued(&mut connection, &mut peer);
+    peer.answer_write(first.tag, first.data.len() as u32);
+    let submitted = receipt(&mut peer, &first);
+    peer.push(submitted);
+    let head = event(
+        &mut peer,
+        &ShellFrameRecord::Opened {
+            transaction: tx(10),
+            key: key(),
+            ttl_millis: 100,
+        },
+    );
+    peer.push(head);
+    drive(&mut connection, &mut peer, |c, _| {
+        c.custody(ticket) == Some(Custody::Submitted)
+            && c.journal_event().is_some()
+            && !c.journal_progress().ack_pending
+    })
+    .unwrap();
+    let sequence = connection.journal_event().unwrap().sequence;
+    assert!(connection.journal_progress().ack_limit < sequence);
+    peer.reset_logs();
+    (connection, peer, sequence)
+}
+
+#[test]
+fn consumed_head_ack_is_queued_before_an_already_ready_frame() {
+    let (mut connection, mut peer, sequence) = retained_head();
+    connection.consume_journal_event().unwrap();
+    connection.enqueue_frame(&commit_record()).unwrap();
+    eprintln!("ready-batch start");
+    connection.poll_io().unwrap();
+    eprintln!("ready-batch end");
+    peer.pump();
+    assert_eq!(peer.frame_writes.len(), 1);
+    let ack = peer
+        .log
+        .iter()
+        .position(|r| *r == Logged::Ack(sequence))
+        .unwrap();
+    let frame = peer
+        .log
+        .iter()
+        .position(|r| *r == Logged::FrameSubmit)
+        .unwrap();
+    assert!(
+        ack < frame,
+        "consumed-head ACK was ready before the frame: {:?}",
+        peer.log
+    );
+}
+
+#[test]
+fn ready_frame_does_not_ack_an_unconsumed_head_or_enable_manual_ack() {
+    for consume in [false, true] {
+        let (mut connection, mut peer, sequence) = retained_head();
+        if consume {
+            connection.set_automatic_journal_ack(false).unwrap();
+            connection.consume_journal_event().unwrap();
+        }
+        connection.enqueue_frame(&commit_record()).unwrap();
+        connection.poll_io().unwrap();
+        peer.pump();
+        assert_eq!(peer.frame_writes.len(), 1);
+        assert!(peer.acks.is_empty(), "ineligible ACK was sent");
+        assert_eq!(
+            connection.journal_progress().ack_limit,
+            sequence - u64::from(!consume)
+        );
+    }
+}
+
+#[test]
+fn ready_batch_respects_zero_byte_budget_and_recovers_without_peer_input() {
+    let (mut connection, mut peer, sequence) = retained_head();
+    connection.consume_journal_event().unwrap();
+    connection.enqueue_frame(&commit_record()).unwrap();
+    let now = Instant::now();
+    connection.dispatch(now, 0).unwrap();
+    peer.pump();
+    assert!(peer.frame_writes.is_empty() && peer.acks.is_empty());
+    connection.dispatch(now, 65536).unwrap();
+    peer.pump();
+    assert_eq!(peer.frame_writes.len(), 1);
+    assert_eq!(
+        peer.acks.iter().map(|ack| ack.sequence).collect::<Vec<_>>(),
+        [sequence]
+    );
+}
+
 fn connected(options: FrameSubmitOptions) -> (Result<ShellConnection, ShellClientError>, Peer) {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();
